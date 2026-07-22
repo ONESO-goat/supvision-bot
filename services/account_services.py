@@ -178,12 +178,25 @@ class AccountServices:
         
         return settings
     
-    def update_account_settings(self, session:Session, account:Account, strictness:str=None, language:str=None):
+    def update_account_settings(self, session:Session, 
+                                account:Account, 
+                                warning_message:str=None,
+                                applause_message:str=None,
+                                strictness:str=None, language:str=None):
         if not account:
             raise ValueError("Account is required")
         
         settings = self.get_account_settings(session=session, account=account)
         
+        if warning_message or applause_message:
+            valid, mes = self._validate_applause_and_warning_message(warning_message=warning_message,applause=applause_message)
+            if not valid:
+                raise ValueError(mes)
+            if warning_message:
+                settings.custom_warning_messages.warning = warning_message
+            if applause_message:
+                settings.custom_warning_messages.applause = applause_message
+            
         if strictness:
             settings.strictness = strictness
         if language:
@@ -194,4 +207,22 @@ class AccountServices:
         session.refresh(settings)
         return settings
     
-    
+    def _validate_applause_and_warning_message(self, 
+                                               warning_message:str|None=None, 
+                                               applause:str|None=None)->tuple[bool, str]:
+        
+        if not warning_message and not applause:
+            return False, "Warning message or appluase are required"
+        
+        if warning_message is not None and not 12 <= len(warning_message) <= 120:
+            return False, f"The warning message of length {len(applause)} falls outside the valid range. length requirement is between 12-120"
+        
+        if applause is not None and not 12 <= len(applause) <= 120:
+            return False,  f"The appluase message of length {len(warning_message)} falls outside the valid range. length requirement is between 12-120"
+        
+        # TODO: AI AGENT detects if the messages are civil and make sense
+        return True, "Messages are valid"
+        
+        
+        
+        

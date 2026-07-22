@@ -1,0 +1,106 @@
+from models.models import User, Reward, UserWonReward, RewardType
+import time
+from sqlmodel import SQLModel, Session
+import random
+
+
+class Gameify:
+    def update_points(self, session:Session, user:User, amount:int):
+        user.currency = amount
+        session.commit()
+        
+    def add_points(self, session:Session, user:User, amount:int):
+        user.currency += amount
+        session.commit()
+        
+    def remove_points(self, session:Session, user:User, amount:int):
+        user.currency -= amount
+        session.commit()
+        
+    def get_reward(self, session:Session, reward_id:str):
+        return session.get(Reward, reward_id)
+    
+    def buy_reward(self, session:Session, user:'User', reward_id:str):
+        if not user or not reward_id:
+            raise ValueError("User and reward id are required")
+        
+        reward = self.get_reward(session, reward_id=reward_id)
+        if not reward:
+            raise ValueError(f"{reward_id} does not exist")
+        
+        if not self.can_afford(user, reward):
+            raise ValueError(f"Cannot affrod item")
+        
+        won_reward = UserWonReward(
+            user=user,
+            item=reward
+        )
+        self.remove_points(session=session, user=user, amount=reward.cost)
+        session.add(won_reward)
+        session.commit()
+        return True
+        
+        
+        
+    def can_afford(self, user:'User', reward: 'Reward'):
+        return user.currency >= reward.cost
+    
+    def _card_code(self):
+        """We are using a fake appilication, so for now well make fake gift cards"""
+        return random.randint(1,10)
+
+
+
+
+def _add_rewards(session:Session):
+    """Adding the test rewards for MVP"""
+
+    if not session:
+        raise ValueError("Session is required")
+    
+    try:
+        titles = [
+            ("dunkin gift card", RewardType.GIFT_CARD, 20, 2500), 
+            ("fornite gift card", RewardType.GIFT_CARD, 10, 1000),
+            ("playstation gift card", RewardType.GIFT_CARD, 100, 10000)
+            ]
+        for reward in titles:
+            time.sleep(0.1)
+            reward_name  = reward[0]
+            reward_type = reward[1]
+            reward_amount = reward[2]
+            reward_cost = reward[3]
+
+            session.add(
+                Reward(
+                    name=reward_name,
+                    type=reward_type,
+                    amount=reward_amount,
+                    cost=reward_cost
+                )
+            )
+        session.commit()
+    except Exception as ex:
+        session.rollback()
+        raise ValueError(f"An error occured when adding rewards to system: {ex}")
+
+def add_reward(session:Session, name:str, reward_amount:int, reward_cost:int, reward_type:str|RewardType=RewardType.GIFT_CARD):
+    if not session:
+        raise ValueError("Session is required")
+    
+    if reward_type not in RewardType:
+        raise ValueError(f"{reward_type} is not available")
+    try:
+
+        session.add(
+                Reward(
+                    name=name,
+                    type=RewardType(reward_type),
+                    amount=reward_amount,
+                    cost=reward_cost
+                )
+            )
+        session.commit()
+    except Exception as ex:
+        session.rollback()
+        raise ValueError(f"An error occured when adding rewards to system: {ex}")

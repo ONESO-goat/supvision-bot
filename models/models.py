@@ -1,9 +1,13 @@
 from sqlmodel import SQLModel, Field, Relationship, JSON
-from helper import create_id
+from helper import create_id, create_number_id
 from enum import Enum
 from typing import Optional
-from decimal import Decimal
+from pydantic import BaseModel
 
+class Messages(BaseModel):
+    warning: str = Field(default="Avoid the upcoming content")
+    applause: str = Field(default="Great work friend! We are all proud of you.")
+    
 class AvailableLanguages(Enum):
     ENGLISH = "en"
     SPANISH = "es"
@@ -31,6 +35,17 @@ class UserType(Enum):
 class AccountType(Enum):
     FAMILY = "family"
     PERSONAL = "personal"
+    
+class RewardType(Enum):
+    GIFT_CARD = "gift_card"
+
+
+class Reward(SQLModel, table=True):
+    id: str = Field(default=create_id(), primary_key=True)
+    name: str
+    type: RewardType
+    amount: int
+    cost: int
 
 class UserSettings(SQLModel, table=True):
     id: str = Field(default=create_id(), primary_key=True)
@@ -49,7 +64,7 @@ class User(SQLModel, table=True):
     password: str 
     user_type: UserType = Field(default=UserType.INDIVIDUAL.value)
     
-    currency: Decimal = Field(default=Decimal('0.0'))
+    currency: int = Field(default=0)
     
     settings_id: str = Field(default=None, foreign_key="user_settings.id")
     settings: Optional['UserSettings'] = Relationship(back_populates="user")
@@ -60,10 +75,19 @@ class User(SQLModel, table=True):
     connections: list['AccountConnection'] = Relationship(back_populates="user")
     
 
+class UserWonReward(SQLModel, table=True):
+    id: str = Field(default=create_id(), primary_key=True)
+    order_id: int = Field(default=create_number_id(), unique=True)
+    
+    user_id: str = Field(default=None, foreign_key="user.id")
+    user: Optional['User'] = Relationship(back_populates="rewards")
+    
+    reward_id: str = Field(default=None)
+    item: Optional['Reward'] = Relationship()
+
 
 class UserHistory(SQLModel, table=True):
     id: str = Field(default=create_id(), primary_key=True)
-    
         
     user_id: str = Field(default=None, foreign_key="user.id")
     user: Optional['User'] = Relationship(back_populates="history")
@@ -82,8 +106,6 @@ class Account(SQLModel, table=True):
     settings_id: str = Field(default=None, foreign_key="account_settings.id")
     account_settings: Optional['AccountSettings'] = Relationship(back_populates="settings")
 
-
-    balance: Decimal = Field(default=Decimal('0.0'))
     
 class AccountConnection(SQLModel, table=True):
     id: str = Field(default=create_id(), primary_key=True)
@@ -101,6 +123,16 @@ class AccountSettings(SQLModel, table=True):
 
     strictness: str = Field(default=StrictnessLevel.NORMAL.value)
     language: str = Field(default=AvailableLanguages.ENGLISH.value)
+    custom_warning_messages: Messages = Field(default_factory=dict, sa_type=JSON)
+    """
+    example:
+    {
+        "warning": "Please avoid this type of content honey",
+        "appluse": "Good job Julius! I'm proud that you're not taking in this content"
+    }
+    
+    """
+    
 
     account_id: str = Field(default=None, foreign_key="account.id")
     account: Optional['Account'] = Relationship(back_populates="settings")
