@@ -1,6 +1,6 @@
-## Equality bot
+# Your Truest Guardian
 
-
+---
 
 ## Quick shot summary
 
