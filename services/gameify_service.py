@@ -29,7 +29,9 @@ class Gameify:
         if not reward:
             raise ValueError(f"{reward_id} does not exist")
 
-        won_reward = session.exec(select(UserWonReward).where(UserWonReward.user_id==user.id, UserWonReward.reward_id==reward.id))
+        won_reward = session.exec(select(UserWonReward).where(
+            UserWonReward.user_id==user.id,
+            UserWonReward.reward_id==reward.id)).first()
         if not won_reward:
             raise ValueError(f"User doesnt have this item")
         
@@ -51,7 +53,7 @@ class Gameify:
         
         won_reward = UserWonReward(
             user=user,
-            item=reward
+            reward=reward
         )
         self.remove_points(session=session, user=user, amount=reward.cost)
         session.add(won_reward)

@@ -1,4 +1,4 @@
-from models.models import AvailableLanguages, User, Account, UserType, UserSettings
+from models.models import AvailableLanguages, User, Guardian, UserType, UserSettings
 from sqlmodel import Session, select, func
 from helpers import validate_password, hash_password, verify_password
 from datetime import datetime
@@ -36,6 +36,11 @@ class UserService:
             raise ValueError("Username, name, email, and password are required")
         
         if session.exec(
+            select(User).where(func.lower(User.username) == username.lower())
+        ).first():
+            raise ValueError(f"User with username '{username}' already exists")
+        
+        if session.exec(
             select(User).where(func.lower(User.email) == email.lower())
         ).first():
             raise ValueError(f"User with email '{email}' already exists")
@@ -62,11 +67,11 @@ class UserService:
     def delete_user(self, session, user:User):
         if not user:
             raise ValueError("User is required")
-        accounts = session.exec(
-            select(Account).where(Account.owner_id == user.id)
-        ).all()
-        for account in accounts:
-            session.delete(account)
+        guardian = session.exec(
+            select(Guardian).where(Guardian.owner_id == user.id)
+        ).first()
+
+        session.delete(guardian)
             
         session.delete(user)
         session.commit()
