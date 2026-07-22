@@ -1,6 +1,7 @@
 from models.models import User, Reward, UserWonReward, RewardType
 import time
 from sqlmodel import SQLModel, Session
+from sqlmodel import Session, select, func
 import random
 
 
@@ -19,6 +20,23 @@ class Gameify:
         
     def get_reward(self, session:Session, reward_id:str):
         return session.get(Reward, reward_id)
+    
+    def refund_reward(self, session:Session, user:'User', reward_id:str):
+        if not user or not reward_id:
+            raise ValueError("User and reward id are required")
+        
+        reward = self.get_reward(session, reward_id=reward_id)
+        if not reward:
+            raise ValueError(f"{reward_id} does not exist")
+
+        won_reward = session.exec(select(UserWonReward).where(UserWonReward.user_id==user.id, UserWonReward.reward_id==reward.id))
+        if not won_reward:
+            raise ValueError(f"User doesnt have this item")
+        
+        self.add_points(session=session, user=user, amount=int(reward.cost/1.2))
+        session.delete(won_reward)
+        session.commit()
+        return True
     
     def buy_reward(self, session:Session, user:'User', reward_id:str):
         if not user or not reward_id:
@@ -39,7 +57,6 @@ class Gameify:
         session.add(won_reward)
         session.commit()
         return True
-        
         
         
     def can_afford(self, user:'User', reward: 'Reward'):
