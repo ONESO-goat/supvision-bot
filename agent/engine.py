@@ -36,7 +36,10 @@ class Engine:
                 print("  Run: ollama pull qwen3:0.6b")
     
     
-    def _classify_image(self, image_bytes: bytes, system_prompt: str, return_json: bool = False) -> Any:
+    def _classify_image(self, 
+                        image_bytes: bytes, 
+                        system_prompt: str=Prompts().image_classification_prompt(), 
+                        return_json: bool = False) -> Any:
         """
         Classifies an image using the specified system prompt.
         """
