@@ -1,6 +1,6 @@
 from models.models import User, Reward, UserWonReward, RewardType
 import time
-from sqlmodel import SQLModel, Session
+from sqlmodel import Session
 from sqlmodel import Session, select, func
 import random
 
@@ -64,7 +64,7 @@ class Gameify:
     def can_afford(self, user:'User', reward: 'Reward'):
         return user.currency >= reward.cost
     
-    def _card_code(self):
+    def _card_activation_code(self):
         """We are using a fake appilication, so for now well make fake gift cards"""
         return random.randint(1,10)
 

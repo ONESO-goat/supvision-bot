@@ -199,9 +199,9 @@ class GuardianServices:
             if not valid:
                 raise ValueError(mes)
             if warning_message:
-                settings.custom_warning_messages.warning = warning_message
+                settings.custom_warning_messages['warning'] = warning_message
             if applause_message:
-                settings.custom_warning_messages.applause = applause_message
+                settings.custom_warning_messages['applause'] = applause_message
             
         if strictness:
             settings.strictness = strictness
