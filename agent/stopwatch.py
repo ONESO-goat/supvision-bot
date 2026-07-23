@@ -53,10 +53,10 @@ class GuardianStateManager:
                 self.warning_active = False
                 self.tracking_start_time = None
     
-    def add_event(self, user, content:str, time_duration:int=180):
-        c = f"** {user.name} **: {content}"
+    def add_event(self, content:str, time_duration:int=180):
+
         self.events.append({
-            "content": c,
+            "content": content,
             "should_avoid": True,
             "time_to_wait":  time_duration
         })

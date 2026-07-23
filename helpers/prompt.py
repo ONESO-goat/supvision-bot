@@ -131,7 +131,7 @@ Analyze the screenshot thoroughly and output a structured JSON object. Focus on 
 Output strictly valid JSON matching this schema:
 {
     "summary": "A concise 1-2 sentence overview of what is happening on screen.",
-    "comments": "Any notable comments, captions, or text visible in the screenshot.",
+    "comments": "Any notable comments, captions, or text visible in the screenshot. If not any, keep this empty.",
     "visible_text": "A list of key visible text elements, paraphrased and summarized",
     "detailed_description": "A thorough description including visible key text, image subjects, logos, UI elements, and context.",
     "confidence": 0.95,
