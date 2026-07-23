@@ -1,6 +1,8 @@
 import time
 import random
 from models.models import GuardianRecapToOwner
+from models.guardian_session import GuardianSession
+from datetime import datetime
 
 class GuardianStateManager:
     def __init__(self):
@@ -37,21 +39,18 @@ class GuardianStateManager:
             self.tracking_start_time = time.perf_counter()
             print(f"[Stopwatch] Started on the side. User must stay away for {self.target_duration}s.")
 
-    def update_and_check_timer(self):
+    def update_and_check_timer(self, sm_row: 'GuardianSession'):
         """Runs silently inside your main loop to check the stopwatch status."""
         if not self.warning_active or self.tracking_start_time is None:
             return
 
-        elapsed = time.perf_counter() - self.tracking_start_time
-            
-            # Check if they successfully stayed away for the required duration
-        if elapsed >= self.target_duration:
-                self.give_user_points = True
-                self.amount_of_points_to_assign += 10
-                print(f"\n[Success] User ignored the post! +10 points. Total points to push: {self.amount_of_points_to_assign}")
-                # Reset state until the next harmful post is found
-                self.warning_active = False
-                self.tracking_start_time = None
+        elapsed = (datetime.utcnow() - sm_row.tracking_start_at).total_seconds()
+        if elapsed >= sm_row.target_duration_seconds:
+            sm_row.warning_active = False
+            sm_row.tracking_start_at = None
+            sm_row.points_pending += 10
+            return True
+        return False
     
     def add_event(self, content:str, time_duration:int=180):
 

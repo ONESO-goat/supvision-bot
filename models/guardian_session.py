@@ -1,0 +1,23 @@
+from sqlmodel import SQLModel, Field, JSON
+from typing import Optional
+from datetime import datetime
+from helper import create_id
+
+class GuardianSession(SQLModel, table=True):
+    __tablename__ = "guardian_session"
+
+    id: str = Field(default_factory=create_id, primary_key=True)
+
+    user_id: str = Field(foreign_key="user.id")
+    guardian_id: str = Field(foreign_key="guardian.id")
+
+    warning_active: bool = Field(default=False)
+    tracking_start_at: Optional[datetime] = Field(default=None)  # see #2
+    target_duration_seconds: int = Field(default=0)
+    
+    events: list = Field(default_factory=list, sa_type=JSON)
+
+    points_pending: int = Field(default=0)
+
+    last_scan_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
