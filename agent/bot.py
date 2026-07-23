@@ -2,6 +2,7 @@ from engine import Engine
 from stopwatch import GuardianStateManager
 from screenshot_logic import ScreenshotLogic
 from helpers.prompt import Prompts
+import io
 import time
 from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
