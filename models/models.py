@@ -90,8 +90,8 @@ class User(SQLModel, table=True):
 
     rewards: list["UserWonReward"] = Relationship(back_populates="user")
     
-    device_ip_id: str = Field(foreign_key="device_ip.id")
-    device_ip: Optional['DeviceID'] = Relationship(back_populates="user")
+    device_ip_id: Optional[str] = Field(default=None, foreign_key="device_ip.id")
+    device_ip: Optional['DeviceID'] = Relationship( back_populates="user")
     
 
     recent_activity: Optional["RecentActivity"] = Relationship(back_populates="user")

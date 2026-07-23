@@ -1,4 +1,4 @@
-from models.models import AvailableLanguages, User, Guardian, UserType, UserSettings
+from models.models import AvailableLanguages, User, Guardian, UserType, UserSettings, GuardianConnection
 from sqlmodel import Session, select, func
 from helpers import validate_password, hash_password, verify_password
 from datetime import datetime
@@ -31,29 +31,45 @@ class UserService:
             raise ValueError("User ID is required")
         return session.get(User, user_id)
     
-    def create_user(self, session, username:str, name:str, email:str, password:str, user_type:UserType=UserType.INDIVIDUAL):
-        if not username or not name or not email or not password:
-            raise ValueError("Username, name, email, and password are required")
+    def get_users_by_guardian(self, session, guardian_id:str):
+        if not guardian_id:
+            return None, "Guardian id is required"
+        
+        guardian = session.get(Guardian, guardian_id)
+        if not guardian:
+            return None, f"Guardian of id '{guardian_id}' does not exist"
+        result = []
+        users = session.exec(select(GuardianConnection).where(GuardianConnection.guardian_id==guardian.id)).all()
+        for user in users:
+            result.append
+        
+    
+    def create_user(self, session, username:str, email:str, password:str, user_type:UserType=UserType.INDIVIDUAL):
+        if not username or not email or not password:
+            return None, "Username, email, and password are required"
         
         if session.exec(
             select(User).where(func.lower(User.username) == username.lower())
         ).first():
-            raise ValueError(f"User with username '{username}' already exists")
+            return None, f"User with username '{username}' already exists"
         
         if session.exec(
             select(User).where(func.lower(User.email) == email.lower())
         ).first():
-            raise ValueError(f"User with email '{email}' already exists")
+            return None, f"User with email '{email}' already exists"
         
-        if not validate_password(password)[0]:
-            raise ValueError("Password does not meet security requirements")
+        valid, mes = validate_password(password)
+        if not valid:
+            return None, mes
+        
         hashed_password = hash_password(password)
         user = User(
             username=username,
-            name=name,
+            name=username,
             email=email,
             password=hashed_password,  
-            user_type=user_type
+            user_type=user_type,
+            device_ip=None
         )
         settings = UserSettings(
             user=user,
@@ -62,66 +78,70 @@ class UserService:
         session.add_all([user, settings])
         session.commit()
         session.refresh(user)
-        return user
+        return user, "success"
     
     def delete_user(self, session, user:User):
         if not user:
-            raise ValueError("User is required")
+            return False, "User is required"
         guardian = session.exec(
             select(Guardian).where(Guardian.owner_id == user.id)
         ).first()
 
-        session.delete(guardian)
+        if guardian:
+            session.delete(guardian)
             
         session.delete(user)
         session.commit()
-        return True
+        return True, "success"
     
     def login(self, session:Session, password:str, username:str='', email:str=''):
         if not email and not username:
-            raise ValueError("Username or email are required")
+            return None, "Username or email are required"
         
         if not password:
-            raise ValueError("Password is required")
+            return None, "Password is required"
         
         if username:
             user = session.exec(
                 select(User).where(User.username == username)
             ).first()
         else:
+            
             user = session.exec(
                 select(User).where(User.email == email)
             ).first()
-        
+            if not user:
+                return None, "No user under this email"
 
         if not user or not verify_password(password, user.password):
-            raise ValueError("Username or password are incorrect")
+            return None, "Username or password are incorrect"
         
-        return user
+        return user, "success"
     
-    def change_name(self, session:Session, user:User, new_name:str):
+    def change_name(self, session:Session, user:User, new_name:str)->tuple[None|User, str]:
         if not user:
-            raise ValueError("User is required")
+            return None, "User is required"
         
         if not new_name:
-            raise ValueError("New name is required")
+            return None, "New name is required"
         
         user.name = new_name
         session.add(user)
         session.commit()
         session.refresh(user)
-        return user
+        return user, "success"
     
-    def change_password(self, session:Session, user:User, new_password:str):
+    def change_password(self, session:Session, user:User, new_password:str)->tuple[None|User, str]:
         if not user:
-            raise ValueError("User is required")
+            return None, "User is required"
         
-        if not new_password or not validate_password(new_password)[0]:
-            raise ValueError("New password does not meet the requirements")
+        valid, mes = validate_password(new_password)
+        if not new_password or not valid:
+            return None, mes or "password required"
         
         hashed_password = hash_password(new_password)
         user.password = hashed_password
         session.add(user)
         session.commit()
         session.refresh(user)
-        return user
+        return user, "success"
