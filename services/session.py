@@ -1,8 +1,9 @@
-from models.models import Guardian, User
+from models.models import Guardian, User, GuardianType, GuardianRecapToOwner
 from models.guardian_session import GuardianSession
 from guardian_services import GuardianServices
 from sqlmodel import Session, select
-from agent.bot import Agent
+from agent.bot import ScreenClassifier
+import random
 from datetime import datetime
 
 guardian_services = GuardianServices()
@@ -37,7 +38,7 @@ class YTGSessionService:
     def process_scan(
         self,
         session: Session,
-        agent: 'Agent',
+        classifer: ScreenClassifier,
         session_row: GuardianSession,
         image_bytes: bytes,
     ) -> dict:
@@ -50,14 +51,12 @@ class YTGSessionService:
         if not guardian:
             raise ValueError("Guardian does not exist during session process")
 
-        if stuff.get("settings"):
-            settings = stuff.get("settings")
-        if stuff.get("restrictions"):
-            restrictions = stuff.get("restrictions")
+        settings = stuff.get("settings")
+        restrictions = stuff.get("restrictions")
             
             
-        classification = agent.engine._classify_image(image_bytes=image_bytes)
-        overview = agent.overview(
+        classification = classifer.engine._classify_image(image_bytes=image_bytes, return_json=True)
+        overview = classifer.overview(
             image_overview=classification.get("summary", ""),
             guardian_settings=settings or None,
             guardian_restrictions=restrictions or [])
@@ -72,13 +71,13 @@ class YTGSessionService:
             session_row.tracking_start_at = None
             
             if not was_already_warning:
-                is_family_account = guardian.guardian_type == "family"
+                is_family_account = guardian.guardian_type == GuardianType.FAMILY
                 # If it's a family account, include the name of the person in this alert. 
                 # If its individual, skip the name.
                 # This is for parents or caregivers to know who is facing the issue,
                 # while individual people dont have to see their name spammed through out
                     
-                breakdown = agent._breakdown_overview(
+                breakdown = classifer._breakdown_overview(
                     user=user, 
                     classification_result=overview, 
                     include_name=is_family_account)
@@ -90,7 +89,7 @@ class YTGSessionService:
             session_row.tracking_start_at = datetime.utcnow()
             session_row.target_duration_seconds = 180
 
-        completed = agent.stopwatch.update_and_check_timer(session_row)
+        completed = self.update_and_check_timer(session=session, sm_row=session_row)
 
         session.add(session_row)
         session.commit()
@@ -101,6 +100,20 @@ class YTGSessionService:
             "warning_active": session_row.warning_active,
             "points_awarded": completed,
         }
+    
+    def update_and_check_timer(self, session:Session, sm_row: 'GuardianSession'):
+            """Runs silently inside your main loop to check the stopwatch status."""
+            if not sm_row.warning_active or sm_row.tracking_start_at is None:
+                return False
+    
+            elapsed = (datetime.utcnow() - sm_row.tracking_start_at).total_seconds()
+            if elapsed >= sm_row.target_duration_seconds:
+                sm_row.warning_active = False
+                sm_row.tracking_start_at = None
+                sm_row.points_pending += 10
+                session.commit()
+                return True
+            return False
         
     def delete_session(self, session:Session, session_id:str):
         """_summary_
@@ -118,3 +131,40 @@ class YTGSessionService:
         session.delete(sess)
         session.commit()
         
+    def trigger_warning(self, sm_row: GuardianSession) -> None:
+        sm_row.warning_active = True
+        sm_row.tracking_start_at = None
+
+    def start_avoidance_timer(self, sm_row: GuardianSession, target_seconds: int = 180) -> None:
+        if sm_row.warning_active and sm_row.tracking_start_at is None:
+            sm_row.tracking_start_at = datetime.utcnow()
+            sm_row.target_duration_seconds = target_seconds
+            
+    def add_event(self, session:Session, sm_row:GuardianSession, content:str, time_duration:int=random.randint(140, 300)):
+    
+            sm_row.events.append({
+                "content": content,
+                "should_avoid": True,
+                "time_to_wait":  time_duration
+            })
+            session.commit()
+            
+    def flush_wipe_events(self, session:Session, sm_row: "GuardianSession"):
+            """If the user ignores the agents warning, it just wipes out the events"""
+            if len(sm_row.events) <= 0:
+                return
+            
+            guardian = session.get(Guardian, sm_row.guardian_id)
+            if not guardian:
+                raise ValueError(f"Guardian of id '{sm_row.guardian_id}' does not exist")
+            
+            owner = guardian.owner
+            for event in sm_row.events:
+                recap = GuardianRecapToOwner(
+                    content=event,
+                    send_to=owner
+                )
+                session.add(recap)
+                session.commit()
+            
+            self.events = []

@@ -140,6 +140,7 @@ class Guardian(SQLModel, table=True):
 
     owner_id: str = Field(default=None, foreign_key="user.id")
     owner: Optional["User"] = Relationship(back_populates="guardian")
+    code: Optional[int] = Field(default=None)
 
     connections: list["GuardianConnection"] = Relationship(back_populates="guardian")
 

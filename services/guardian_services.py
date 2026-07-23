@@ -9,14 +9,11 @@ from models.models import (GuardianConnection,
                            )
 
 from sqlmodel import Session, select, func
-from datetime import datetime
-from pydantic import ValidationError
-from helpers import validate_password, hash_password, verify_password
-import traceback
+from typing import Any
 
 class GuardianServices:
     
-    def get_guardian_data(self, session:Session, guardian_id: str):
+    def get_guardian_data(self, session:Session, guardian_id: str)->tuple[dict[str,Any], str]:
         """Get guardian, guardian settings, guardian restrictions"""
         
         guardian = self.get_guardian_by_id(session, guardian_id=guardian_id)
@@ -26,8 +23,9 @@ class GuardianServices:
                 "settings": None,
                 "restrictions": None
                 }, f"Guadian with id '{guardian_id}' not found"
-        settings = self.get_guardian_settings(session, guardian=guardian)
-        restrictions = self.get_guardian_restrictions(session=session, guardian=guardian)
+            
+        settings = self.get_or_create_guardian_settings(session, guardian=guardian)
+        restrictions = self.get_or_create_guardian_restrictions(session=session, guardian=guardian)
         return {
                 "guardian": guardian,
                 "settings": settings,
@@ -184,7 +182,7 @@ class GuardianServices:
 
         return guardian, "success"
     
-    def get_guardian_restrictions(self, session:Session, guardian:Guardian):
+    def get_or_create_guardian_restrictions(self, session:Session, guardian:Guardian):
         if not guardian:
             return None, "Guardian is requried"
         
@@ -199,7 +197,7 @@ class GuardianServices:
             session.refresh(restrictions)
         return restrictions, "success"
         
-    def get_guardian_settings(self, session:Session, guardian:Guardian)->tuple[GuardianSettings|None, str]:
+    def get_or_create_guardian_settings(self, session:Session, guardian:Guardian)->tuple[GuardianSettings|None, str]:
         if not guardian:
             return None, "Guardian is required"
         

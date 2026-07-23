@@ -10,102 +10,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from models.models import Guardian, GuardianSettings, User
 
-class Agent:
-    def __init__(self, user: 'User', guadian: 'Guardian', guardian_settings: 'GuardianSettings', guardian_restrictions: list) -> None:
-        if not guadian or not guardian_settings:
-            raise ValueError("Guardian and GuardianSettings are required")
+class ScreenClassifier:
+    def __init__(self) -> None:
         
         self.engine = Engine()
-        self.stopwatch = GuardianStateManager()
-        self.screenshot_logic = ScreenshotLogic()
         self.prompts = Prompts()
-        
-        # self.user: "User|None" = user
-        # self.guardian: "Guardian" = guadian
-        # self.guardian_settings: 'GuardianSettings' = guardian_settings
-        # self.guardian_restrictions: list = guardian_restrictions
 
     
-    # def _ignore_this_function_just_for_an_idea(self):     
-    #     while True:
-    #         time.sleep(5)
-    #         d = self.check() # The agent checks
-    #         self.stopwatch.update_and_check_timer()
-    #         if d is None:
-    #             continue
-    #         self.read_overview(self.user, d) # the agent reads the overview on what was seen
-    #         # If flagged, tell user move on.
-    #         # If they dont, create object that is then send to the summary page (family accounts) for the owner to see
-            
-        
-    def check(self, guardian_settings:"GuardianSettings", guardian_restrictions:list):
-        """
-        Main loop for the agent. Continuously captures the screen, classifies it, and manages warnings.
-        Here the agent is just checking the screen
-        """
-        print("Agent is active and watching screen...")
-        try:
-                if not self.screenshot_logic.check_for_updates():
-                    return None  # screen unchanged, skip classification entirely
-                
-                # Capture the current screen
-                screenshot = self.screenshot_logic.get_previous_image()
-                if not screenshot:
-                    screenshot = self.screenshot_logic.capture_screenshot()
-                else:
-                    buf = io.BytesIO()
-                    screenshot.save(buf, format="PNG")
-                    screenshot = buf.getvalue()
-                # Classify the screenshot
-                classification_result = self.engine._classify_image(
-                    image_bytes=screenshot,
-                    system_prompt=self.prompts.image_classification_prompt(),
-                    return_json=True
-                )
-                
-                composed_description = (
-            f"Summary: {classification_result.get('summary', '')}\n"
-            f"Visible text: {classification_result.get('visible_text', '')}\n"
-            f"Comments: {classification_result.get('comments', '')}\n"
-            f"Details: {classification_result.get('detailed_description', '')}"
-        )
-                overview = self.overview(image_overview=composed_description,
-                                         guardian_restrictions=guardian_restrictions, 
-                                         guardian_settings=guardian_settings)
-                
-                overview['image_summary'] = classification_result
-
-                return overview
-        except Exception as ex:
-            print(f"\nAgent faced an internal error: {ex}")
-            raise ex
-    
-
-    
-    def read_overview(self, user, classification_result: dict[str, Any]):
-        """
-        Sends a warning to the user based on the classification result.
-        """
-        
-        if classification_result.get("flagged"):
-            was_already_warning = self.stopwatch.warning_active
-            self.stopwatch.trigger_warning()
-            if not was_already_warning:
-                classifi_summ = self._breakdown_overview(
-                    user=user, 
-                    classification_result=classification_result)
-                
-                self.stopwatch.add_event(content=classifi_summ)
-            print(f"\n[Warning] Harmful content detected! Category: {classification_result.get('category')}, Confidence: {classification_result.get('confidence')}")
-            print(f"Description: {classification_result.get('description')}")
-        
-        elif self.stopwatch.warning_active:
-        # content is gone AND we were previously warning -> start the clock
-            self.stopwatch.user_scrolled_away()
-        
-        else:
-            print("\n[Info] No harmful content detected.")
-           
     def overview(self, 
                  image_overview:str, 
                  guardian_settings:'GuardianSettings|None', 
@@ -144,12 +55,6 @@ class Agent:
             overview['send_warning'] = False
         return overview
     
-    def is_the_same_image(self, image1: bytes, image2: bytes) -> bool:
-        """
-        Compares two images to determine if they are the same.
-        """
-        b = self.screenshot_logic.difference(image1, image2)
-        return not self.screenshot_logic._is_different(b)
     
     def _breakdown_overview(self, user, classification_result: dict, include_name:bool=False):
         img_summary = classification_result.get('image_summary', {})
@@ -178,19 +83,6 @@ info:
     detailed description: {img_summary.get('detailed_description')}
 """.strip()
 
-    def update_user(self, session:Session, user:User|None=None):
-        if user is not None:
-            if self.user:
-                if user.id != self.user.id:
-                    raise ValueError(f"Cant update users as theyre different")
-            self.user = user
-            return True
-        else:
-            if self.user:
-                self.user = session.get(User, self.user.id)
-                return True
-        return False
-    
     @property
     def default_restrictions(self)->list[str]:
         return [
