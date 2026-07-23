@@ -1,6 +1,6 @@
-from engine import Engine
-from stopwatch import GuardianStateManager
-from screenshot_logic import ScreenshotLogic
+from .engine import Engine
+from .stopwatch import GuardianStateManager
+from .screenshot_logic import ScreenshotLogic
 from helpers.prompt import Prompts
 import io
 import time
@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from models.models import Guardian, GuardianSettings, GuardianRestrictions
 
 class Agent:
-    def __init__(self, guadian: Guardian, guardian_settings: GuardianSettings, guardian_restrictions: list) -> None:
+    def __init__(self, guadian: 'Guardian', guardian_settings: 'GuardianSettings', guardian_restrictions: list) -> None:
         if not guadian or not guardian_settings:
             raise ValueError("Guardian and GuardianSettings are required")
         
