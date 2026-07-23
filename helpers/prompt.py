@@ -135,8 +135,8 @@ Output strictly valid JSON matching this schema:
     "visible_text": "A list of key visible text elements, paraphrased and summarized",
     "detailed_description": "A thorough description including visible key text, image subjects, logos, UI elements, and context.",
     "confidence": 0.95,
-    "error": false,
-    "error_message": null
 }
     
     """
+#     "error": false,
+#  "error_message": null

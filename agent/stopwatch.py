@@ -39,7 +39,7 @@ class GuardianStateManager:
 
     def update_and_check_timer(self):
         """Runs silently inside your main loop to check the stopwatch status."""
-        if not self.warning_active or self.tracking_start_time is None or len(self.events) <= 0:
+        if not self.warning_active or self.tracking_start_time is None:
             return
 
         elapsed = time.perf_counter() - self.tracking_start_time

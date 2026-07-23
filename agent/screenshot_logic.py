@@ -56,9 +56,7 @@ class ScreenshotLogic:
             with mss.mss() as sct:
                 monitor = sct.monitors[1]
                 screenshot = sct.grab(monitor)
-           
-                sct.shot(output=self.previous_image_file)
-                
+
                 return mss.tools.to_png(screenshot.rgb, screenshot.size)
         except Exception as ex:
             print(
