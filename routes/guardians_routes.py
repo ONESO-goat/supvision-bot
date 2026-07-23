@@ -128,7 +128,7 @@ def get_guardian_connections(
     return guardian_service.get_all_connections(session, guardian=guardian)
 
 
-@router.post("/{guardian_id}/connections", status_code=status.HTTP_201_CREATED)
+@router.post("/{guardian_id}/connections/add", status_code=status.HTTP_201_CREATED)
 def add_connection(
     guardian_id: str,
     payload: AddConnectionRequest,
@@ -226,7 +226,7 @@ def get_guardian_settings(
             detail=f"Guardian '{guardian_id}' does not exist",
         )
 
-    settings, msg = guardian_service.get_guardian_settings(
+    settings, msg = guardian_service.get_or_create_guardian_settings(
         session=session, guardian=guardian
     )
     if not settings:
@@ -235,7 +235,7 @@ def get_guardian_settings(
     return settings
 
 
-@router.patch("/{guardian_id}/settings")
+@router.patch("/{guardian_id}/settings/update")
 def update_guardian_settings(
     guardian_id: str,
     payload: UpdateGuardianSettingsRequest,
@@ -260,3 +260,13 @@ def update_guardian_settings(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
 
     return settings
+
+
+@router.get("/reports/{given_id}")
+def get_reports(given_id:str, session:Session=Depends(get_session)):
+    reports, mes = guardian_service.get_reports_by_guardian_id(session=session, guardian_id=given_id)
+    if reports is None:
+        reports, mes = guardian_service.get_reports_by_owner_id(session=session, owner_id=given_id)
+        if reports is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"The given id '{given_id}' is not associated with any guardian or user")
+    return reports

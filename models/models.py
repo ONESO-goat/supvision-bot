@@ -117,10 +117,12 @@ class UserHistory(SQLModel, table=True):
     user: Optional["User"] = Relationship(back_populates="history")
 
 
-class GuardianRecapToOwner(SQLModel, table=True):
+class GuardianReport(SQLModel, table=True):
     id: str = Field(default_factory=create_id, primary_key=True)
 
     content: str 
+    
+    guardian_id: str = Field(default=None)
     
     send_to_id: str = Field(default=None, foreign_key="send_to.id")
     send_to: Optional["User"] = Relationship(back_populates="report")

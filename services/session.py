@@ -1,4 +1,4 @@
-from models.models import Guardian, User, GuardianType, GuardianRecapToOwner
+from models.models import Guardian, User, GuardianType, GuardianReport
 from models.guardian_session import GuardianSession
 from guardian_services import GuardianServices
 from sqlmodel import Session, select
@@ -87,12 +87,12 @@ class YTGSessionService:
                     classification_result=overview, 
                     include_name=is_family_account)
                 
-                session_row.events.append(breakdown)
-                session.commit()
+                self.add_event(session=session, content=breakdown, sm_row=session_row)
                 
         elif was_already_warning:
             session_row.tracking_start_at = datetime.utcnow()
             session_row.target_duration_seconds = 180
+            self.start_avoidance_timer(session_row)
 
         completed = self.update_and_check_timer(session=session, sm_row=session_row)
 
@@ -149,8 +149,9 @@ class YTGSessionService:
                   session:Session, 
                   sm_row:GuardianSession, 
                   content:str, 
-                  time_duration:int=random.randint(140, 300)):
-    
+                  time_duration:int|None=None):
+            if time_duration is None:
+                time_duration = random.randint(140, 300)
             sm_row.events.append({
                 "content": content,
                 "should_avoid": True,
@@ -169,11 +170,11 @@ class YTGSessionService:
             
             owner = guardian.owner
             for event in sm_row.events:
-                recap = GuardianRecapToOwner(
+                recap = GuardianReport(
                     content=event,
                     send_to=owner
                 )
                 session.add(recap)
-                session.commit()
             
-            self.events = []
+            sm_row.events = []
+            session.commit()

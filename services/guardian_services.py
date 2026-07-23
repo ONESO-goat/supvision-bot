@@ -5,7 +5,8 @@ from models.models import (GuardianConnection,
                            GuardianSettings, 
                            GuardianRestrictions, 
                            GuardianType,
-                           AvailableLanguages
+                           AvailableLanguages,
+                           GuardianReport
                            )
 
 from sqlmodel import Session, select, func
@@ -223,7 +224,7 @@ class GuardianServices:
         if not guardian:
             return None, "Guardian is required"
         
-        settings, mes = self.get_guardian_settings(session=session, guardian=guardian)
+        settings, mes = self.get_or_create_guardian_settings(session=session, guardian=guardian)
         if not settings:
             return None, mes
         
@@ -245,6 +246,42 @@ class GuardianServices:
         session.commit()
         session.refresh(settings)
         return settings, "success"
+    
+    def get_reports_by_guardian_id(self, session:Session, guardian_id:str)->tuple[list[dict[str,Any]]|None, str]:
+        if not guardian_id:
+            return None, "Guardian id is required"
+        
+        guardian = self.get_guardian_by_id(session, guardian_id=guardian_id)
+        if not guardian:
+            return None, f"Guadian of id {guardian_id} does not exist"
+        
+        reports = session.exec(
+            select(GuardianReport)
+            .where(GuardianReport.guardian_id==guardian.id)).all()
+        result = []
+        for report in reports:
+            result.append(
+                report.model_dump()
+            )
+        return result, ""
+    
+    def get_reports_by_owner_id(self, session:Session, owner_id:str)->tuple[list[dict[str,Any]]|None, str]:
+            if not owner_id:
+                return None, "User id is required"
+            
+            owner = session.get(User, owner_id)
+            if not owner:
+                return None, f"User of id {owner_id} does not exist"
+            
+            reports = session.exec(
+                select(GuardianReport)
+                .where(GuardianReport.send_to_id==owner.id)).all()
+            result = []
+            for report in reports:
+                result.append(
+                    report.model_dump()
+                )
+            return result, ""
     
     def _validate_applause_and_warning_message(self, 
                                                warning_message:str|None=None, 
