@@ -11,6 +11,11 @@ guardian_services = GuardianServices()
 
 class YTGSessionService:
 
+    def get_all_sessions_under_guardian(self, session:Session, guardian):
+        return session.exec(
+            select(GuardianSession)
+            .where(GuardianSession.guardian_id == guardian.id)).all()
+    
     def get_YTGSession(self, session:Session, session_id:str)->tuple[GuardianSession|None, str]:
         if not session or not session_id:
             return None, "Session and ID are required"
@@ -140,7 +145,11 @@ class YTGSessionService:
             sm_row.tracking_start_at = datetime.utcnow()
             sm_row.target_duration_seconds = target_seconds
             
-    def add_event(self, session:Session, sm_row:GuardianSession, content:str, time_duration:int=random.randint(140, 300)):
+    def add_event(self, 
+                  session:Session, 
+                  sm_row:GuardianSession, 
+                  content:str, 
+                  time_duration:int=random.randint(140, 300)):
     
             sm_row.events.append({
                 "content": content,
