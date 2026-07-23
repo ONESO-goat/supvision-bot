@@ -4,6 +4,8 @@ from enum import Enum
 from typing import Optional
 from pydantic import BaseModel
 
+# The user can only make 100 points per day. This is fair as people use social media like all day.
+# if 
 
 class Messages(BaseModel):
     warning: str = "Avoid the upcoming content"
@@ -87,6 +89,10 @@ class User(SQLModel, table=True):
     guardian: Optional["Guardian"] = Relationship(back_populates="owner")
 
     rewards: list["UserWonReward"] = Relationship(back_populates="user")
+    
+    device_ip_id: str = Field(foreign_key="device_ip.id")
+    device_ip: Optional['DeviceID'] = Relationship(back_populates="user")
+    
 
     recent_activity: Optional["RecentActivity"] = Relationship(back_populates="user")
 
@@ -110,6 +116,14 @@ class UserHistory(SQLModel, table=True):
     user_id: str = Field(default=None, foreign_key="user.id")
     user: Optional["User"] = Relationship(back_populates="history")
 
+
+class GuardianRecapToOwner(SQLModel, table=True):
+    id: str = Field(default_factory=create_id, primary_key=True)
+
+    content: str 
+    
+    send_to_id: str = Field(default=None, foreign_key="send_to.id")
+    send_to: Optional["User"] = Relationship(back_populates="report")
 
 class Guardian(SQLModel, table=True):
     """
@@ -168,6 +182,14 @@ class GuardianSettings(SQLModel, table=True):
 
     guardian_id: str = Field(default=None, foreign_key="guardian.id")
     guardian: Optional["Guardian"] = Relationship(back_populates="guardian_settings")
+
+class DeviceID(SQLModel, table=True):
+    id: str = Field(default_factory=create_id, primary_key=True)
+    
+    id: str
+    
+    guardian_id: str = Field(foreign_key="guardian.id")
+    user: Optional['User'] = Relationship(back_populates="device_ip")
 
 
 class GuardianRestrictions(SQLModel, table=True):

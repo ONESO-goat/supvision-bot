@@ -11,6 +11,8 @@ class Gameify:
         session.commit()
         
     def add_points(self, session:Session, user:User, amount:int):
+        if user.currency > 50000:
+            raise ValueError("User reached the maxed amount of currency")
         user.currency += amount
         session.commit()
         
@@ -29,6 +31,7 @@ class Gameify:
         if not reward:
             raise ValueError(f"{reward_id} does not exist")
 
+        
         won_reward = session.exec(select(UserWonReward).where(
             UserWonReward.user_id==user.id,
             UserWonReward.reward_id==reward.id)).first()
@@ -79,9 +82,9 @@ def _add_rewards(session:Session):
     
     try:
         titles = [
-            ("dunkin gift card", RewardType.GIFT_CARD, 20, 2500), 
-            ("fornite gift card", RewardType.GIFT_CARD, 10, 1000),
-            ("playstation gift card", RewardType.GIFT_CARD, 100, 10000)
+            ("dunkin gift card", RewardType.GIFT_CARD, 25, 18250), 
+            ("fornite gift card", RewardType.GIFT_CARD, 25, 18250),
+            ("playstation gift card", RewardType.GIFT_CARD, 100, 36500)
             ]
         for reward in titles:
             time.sleep(0.1)

@@ -1,13 +1,23 @@
 import time
 import random
+from models.models import GuardianRecapToOwner
 
 class GuardianStateManager:
     def __init__(self):
         self.warning_active = False
         self.tracking_start_time = None
         self.target_duration = 0  # Dynamic 2-5 minute target
-        self.user_points = 0
-
+        self.give_user_points: bool = False
+        self.amount_of_points_to_assign: int = 0
+    
+        self.events = []
+        
+    def wait_5_seconds(self):
+        """Simulates a 5-second wait for demonstration purposes."""
+        print("[Agent] Waiting for 5 seconds...")
+        time.sleep(5)
+        print("[Agent] Wait complete.")
+        
     def trigger_warning(self):
         """Called when the agent detects harmful content."""
         print("[Agent] Harmful content detected! Warning the user...")
@@ -23,24 +33,52 @@ class GuardianStateManager:
                 self.target_duration = random.randint(120,300)
             else:
                 self.target_duration = target_duration
+  
             self.tracking_start_time = time.perf_counter()
             print(f"[Stopwatch] Started on the side. User must stay away for {self.target_duration}s.")
 
     def update_and_check_timer(self):
         """Runs silently inside your main loop to check the stopwatch status."""
-        if not self.warning_active or self.tracking_start_time is None:
+        if not self.warning_active or self.tracking_start_time is None or len(self.events) <= 0:
             return
 
         elapsed = time.perf_counter() - self.tracking_start_time
-        
-        # Check if they successfully stayed away for the required duration
-        if elapsed >= self.target_duration:
-            self.user_points += 10
-            print(f"\n[Success] User ignored the post! +10 points. Total points: {self.user_points}")
-            # Reset state until the next harmful post is found
-            self.warning_active = False
-            self.tracking_start_time = None
             
+            # Check if they successfully stayed away for the required duration
+        if elapsed >= self.target_duration:
+                self.give_user_points = True
+                self.amount_of_points_to_assign += 10
+                print(f"\n[Success] User ignored the post! +10 points. Total points to push: {self.amount_of_points_to_assign}")
+                # Reset state until the next harmful post is found
+                self.warning_active = False
+                self.tracking_start_time = None
+    
+    def add_event(self, user, content:str, time_duration:int=180):
+        c = f"** {user.name} **: {content}"
+        self.events.append({
+            "content": c,
+            "should_avoid": True,
+            "time_to_wait":  time_duration
+        })
+    
+    def flush_wipe_events(self, session, user):
+        """If the user ignores the agents warning, it just wipes out the events"""
+        if len(self.events) <= 0:
+            return
+        
+        for event in self.events:
+            recap = GuardianRecapToOwner(
+                content=event['content']
+            )
+            session.add(recap)
+            session.commit()
+        
+        self.events = []
+        
+    
+    def empty_point_count(self):
+        self.amount_of_points_to_assign = 0
+          
 if __name__ in "__main__":
 
     # --- How to integrate this into your main screen-watching loop ---
