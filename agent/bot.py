@@ -6,10 +6,10 @@ import io
 import time
 from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
-    from models.models import Guardian, GuardianSettings, GuardianRestrictions
+    from models.models import Guardian, GuardianSettings, User
 
 class Agent:
-    def __init__(self, guadian: 'Guardian', guardian_settings: 'GuardianSettings', guardian_restrictions: list) -> None:
+    def __init__(self, user: 'User', guadian: 'Guardian', guardian_settings: 'GuardianSettings', guardian_restrictions: list) -> None:
         if not guadian or not guardian_settings:
             raise ValueError("Guardian and GuardianSettings are required")
         
@@ -18,10 +18,12 @@ class Agent:
         self.screenshot_logic = ScreenshotLogic()
         self.prompts = Prompts()
         
-        self.guardian = guadian
-        self.guardian_settings = guardian_settings
+        self.user: "User" = user
+        self.guardian: "Guardian" = guadian
+        self.guardian_settings: 'GuardianSettings' = guardian_settings
         self.guardian_restrictions = guardian_restrictions
 
+    
     def _ignore_this_function_just_for_an_idea(self, user):
         while True:
             time.sleep(5)
@@ -155,3 +157,5 @@ info:
     visible text summarized: {img_summary.get('visible_text')}
     detailed description: {img_summary.get('detailed_description')}
 """
+    def update_user(self, user:User):
+        self.user = user
