@@ -12,26 +12,26 @@ class UserService:
         statement = select(User)
         return session.exec(statement).all()
     
-    def get_user_by_email(self, session, email:str):
+    def get_user_by_email(self, session:Session, email:str)->User|None:
         if not email:
             raise ValueError("Email is required")
         return session.exec(
             select(User).where(User.email == email)
         ).first()
         
-    def get_user_by_username(self, session, username:str):
+    def get_user_by_username(self, session: Session, username:str)->User|None:
         if not username:
             raise ValueError("Username is required")
         return session.exec(
             select(User).where(User.username == username)
         ).first()
         
-    def get_user_by_id(self, session, user_id:str):
+    def get_user_by_id(self, session:Session, user_id:str)->User|None:
         if not user_id:
             raise ValueError("User ID is required")
         return session.get(User, user_id)
     
-    def get_users_by_guardian(self, session, guardian_id:str):
+    def get_users_with_guardian_connection(self, session: Session, guardian_id:str):
         if not guardian_id:
             return None, "Guardian id is required"
         
@@ -39,12 +39,19 @@ class UserService:
         if not guardian:
             return None, f"Guardian of id '{guardian_id}' does not exist"
         result = []
-        users = session.exec(select(GuardianConnection).where(GuardianConnection.guardian_id==guardian.id)).all()
-        for user in users:
-            result.append
+        users = session.exec(
+            select(GuardianConnection)
+            .where(GuardianConnection.guardian_id==guardian.id)).all()
+        
+        for connection in users:
+            user = self.get_user_by_id(session,user_id=connection.user_id)
+            if not user:
+                continue
+            result.append(user.model_dump())
+        return result, "success"
         
     
-    def create_user(self, session, username:str, email:str, password:str, user_type:UserType=UserType.INDIVIDUAL):
+    def create_user(self, session, username:str, email:str, password:str, user_type:UserType=UserType.INDIVIDUAL)->tuple[User|None, str]:
         if not username or not email or not password:
             return None, "Username, email, and password are required"
         
@@ -94,7 +101,7 @@ class UserService:
         session.commit()
         return True, "success"
     
-    def login(self, session:Session, password:str, username:str='', email:str=''):
+    def login(self, session:Session, password:str, username:str='', email:str='')->tuple[User|None, str]:
         if not email and not username:
             return None, "Username or email are required"
         
@@ -124,6 +131,10 @@ class UserService:
         
         if not new_name:
             return None, "New name is required"
+        
+        if not 3 <= len(new_name) <= 120:
+            return None, "Name is falls outside the valid range of 3-120 characters."
+                    
         
         user.name = new_name
         session.add(user)

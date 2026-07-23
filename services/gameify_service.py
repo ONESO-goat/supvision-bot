@@ -4,6 +4,8 @@ from sqlmodel import Session
 from sqlmodel import Session, select, func
 import random
 
+class MaxedCurrencyError(Exception):
+    pass
 
 class Gameify:
     def update_points(self, session:Session, user:User, amount:int):
@@ -11,8 +13,8 @@ class Gameify:
         session.commit()
         
     def add_points(self, session:Session, user:User, amount:int):
-        if user.currency > 50000:
-            raise ValueError("User reached the maxed amount of currency")
+        if user.currency > 100000:
+            raise MaxedCurrencyError("User reached the maxed amount of currency")
         user.currency += amount
         session.commit()
         
@@ -25,34 +27,34 @@ class Gameify:
     
     def refund_reward(self, session:Session, user:'User', reward_id:str):
         if not user or not reward_id:
-            raise ValueError("User and reward id are required")
+            return False, "User and reward id are required"
         
         reward = self.get_reward(session, reward_id=reward_id)
         if not reward:
-            raise ValueError(f"{reward_id} does not exist")
+            return False, f"{reward_id} does not exist"
 
         
         won_reward = session.exec(select(UserWonReward).where(
             UserWonReward.user_id==user.id,
             UserWonReward.reward_id==reward.id)).first()
         if not won_reward:
-            raise ValueError(f"User doesnt have this item")
+            return False, f"User doesnt have this item"
         
         self.add_points(session=session, user=user, amount=int(reward.cost/1.2))
         session.delete(won_reward)
         session.commit()
-        return True
+        return True, "success"
     
     def buy_reward(self, session:Session, user:'User', reward_id:str):
         if not user or not reward_id:
-            raise ValueError("User and reward id are required")
+            return False, "User and reward id are required"
         
         reward = self.get_reward(session, reward_id=reward_id)
         if not reward:
-            raise ValueError(f"{reward_id} does not exist")
+            return False, f"'{reward_id}' does not exist"
         
         if not self.can_afford(user, reward):
-            raise ValueError(f"Cannot affrod item")
+            return False, f"Cannot affrod item"
         
         won_reward = UserWonReward(
             user=user,
@@ -61,7 +63,7 @@ class Gameify:
         self.remove_points(session=session, user=user, amount=reward.cost)
         session.add(won_reward)
         session.commit()
-        return True
+        return True, f"{user.username} bought {reward.name} for {reward.cost}"
         
         
     def can_afford(self, user:'User', reward: 'Reward'):
@@ -81,12 +83,17 @@ def _add_rewards(session:Session):
         raise ValueError("Session is required")
     
     try:
-        titles = [
+        starters = [
             ("dunkin gift card", RewardType.GIFT_CARD, 25, 18250), 
-            ("fornite gift card", RewardType.GIFT_CARD, 25, 18250),
-            ("playstation gift card", RewardType.GIFT_CARD, 100, 36500)
+            ("fortnite gift card", RewardType.GIFT_CARD, 25, 18250),
+            ("playstation gift card", RewardType.GIFT_CARD, 100, 36500),
+            ("amazon gift card", RewardType.GIFT_CARD, 10, 9125),
+            ("starbucks gift card", RewardType.GIFT_CARD, 25, 18250),
+            ("target gift card", RewardType.GIFT_CARD, 25, 18250),
+            ("xbox gift card", RewardType.GIFT_CARD, 50, 25000),
+            ("apple gift card", RewardType.GIFT_CARD, 100, 36500),
             ]
-        for reward in titles:
+        for reward in starters:
             time.sleep(0.1)
             reward_name  = reward[0]
             reward_type = reward[1]
