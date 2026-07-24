@@ -139,7 +139,7 @@ class YTGSessionService:
         user = session.get(User, session_row.user_id)
         if not user or not settings:
             raise ValueError("User or settings are missing during scanning process")
-        
+        penalty_applied = 0
         if overview["flagged"]:
             session_row.warning_active = True
             session_row.tracking_start_at = None

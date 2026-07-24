@@ -203,7 +203,7 @@ def main():
     section("5. Add restrictions")
     # -----------------------------------------------------------------
     if guardian_id:
-        for restriction in ["gambling", "graphic violence"]:
+        for restriction in ["gambling", "graphic violence", "politics"]:
             call("POST", ENDPOINTS["add_restriction"].format(guardian_id=guardian_id),
                  f"add_restriction:{restriction}", json={"restriction": restriction})
     else:
