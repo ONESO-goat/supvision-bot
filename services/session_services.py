@@ -13,7 +13,65 @@ STILL_VIEWING_THRESHOLD_SECONDS = 30
 ALERT_COUNT_THRESHOLD = 5 
 
 class YTGSessionService:
-   
+    
+    def turn_off_guardian(self, session:Session, guardian_id:str)->tuple[bool, str]:
+            """Turn off the guardian. When turned off, the sessions are automatically deleted"""
+            guardian_data, mes = guardian_services.get_guardian_data(session, guardian_id=guardian_id)
+                    
+            guardian = guardian_data.get("guardian")
+            
+            if not guardian:
+                return False, mes
+                    
+            if not guardian.on:
+                return False, "Guardian is already off"
+            
+            sessions = self.get_all_sessions_under_guardian(session=session, guardian=guardian)
+            if not sessions:
+                guardian.on = False
+                return True, "No sessions found under the guardian. Turned off"
+            
+            sess_count = 0
+            for running_session in sessions:
+                session.delete(running_session)
+                sess_count += 1
+            guardian.on = False
+            session.commit()
+            return True, f"Guardian is now off, removed {sess_count} sessions"
+                    
+    def turn_on_guardian(self, session:Session, guardian_id:str)->tuple[list[GuardianSession]|None, str]:
+            """Turn on the guardian. When turned on, the sessions are automatically set"""
+            try:
+                guardian_data, mes = guardian_services.get_guardian_data(session, guardian_id=guardian_id)
+                
+                guardian = guardian_data.get("guardian")
+        
+                if not guardian:
+                    return None, mes
+                
+                if guardian.on:
+                    return None, "Guardian is already running"
+                
+                
+                connections = guardian_services.get_all_connections(session=session, guardian=guardian)
+                new_sessions = []
+                for connection in connections:
+                    user = session.get(User, connection.user_id)
+                    if not user:
+                        continue
+                    s = GuardianSession(
+                        user_id=user.id,
+                        guardian_id=guardian.id
+                    )
+                    new_sessions.append(s)
+                guardian.on = True
+                session.add_all(new_sessions)
+                session.commit()
+                return new_sessions, f"{len(new_sessions)} new sessions set"
+            
+            except Exception as ex:
+                session.rollback()
+                raise ex
 
     def get_all_sessions(self, session:Session):
         statement = select(GuardianSession)

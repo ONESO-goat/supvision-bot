@@ -8,9 +8,10 @@ from models.models import (GuardianConnection,
                            RelationshipType,
                            GuardianReport
                            )
-
+from models.guardian_session import GuardianSession
 from sqlmodel import Session, select, func
 from typing import Any
+
 
 class GuardianServices:
     
@@ -130,10 +131,20 @@ class GuardianServices:
             session.rollback()
             raise ex
     
+    def change_guardian_type(self,session, guardian:Guardian, new_type:GuardianType)->tuple[Guardian|None, str]:
+        if not guardian or new_type:
+            return None, "Guardian and typing is required"
+        guardian.guardian_type = new_type
+        session.commit()
+        return guardian, "success"
+    
     def add_connection(self, session:Session, guardian:Guardian, user:User, connection_type:RelationshipType):
         if not guardian or not user:
             return None, "Guardian and user are required"
         
+        if guardian.guardian_type == GuardianType.PERSONAL:
+            return None, "Cannot add connections for personal accounts"
+                    
         if len(self.get_all_connections(session=session, guardian=guardian)) >= 7:
             return None, "Maximum number of connections reached for this Guardian"
         

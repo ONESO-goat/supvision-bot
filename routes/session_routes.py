@@ -95,6 +95,24 @@ def get_sessions_by_guardian(
     )
 
 
+@router.post("/{guardian_id}/on")
+def turn_guardian_on(guardian_id:str, session:Session=Depends(get_session)):
+    
+    new_sessions, mes = session_service.turn_on_guardian(session=session, guardian_id=guardian_id)
+    if new_sessions is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=mes)
+    return new_sessions
+
+@router.post("/{guardian_id}/off")
+def turn_guardian_off(guardian_id:str, session:Session=Depends(get_session)):
+    
+    successful, mes = session_service.turn_off_guardian(session=session, guardian_id=guardian_id)
+    if not successful:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=mes)
+    return {"message": mes}
+
 @router.delete("/{session_id}")
 def delete_session(session_id: str, session: Session = Depends(get_session)):
     sess, msg = session_service.get_YTGSession(session=session, session_id=session_id)

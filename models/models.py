@@ -144,7 +144,7 @@ class Guardian(SQLModel, table=True):
     owner_id: Optional[str] = Field(default=None, foreign_key="user.id")
     owner: Optional["User"] = Relationship(back_populates="guardian")
     code: Optional[int] = Field(default=None)
-
+    on: bool = Field(default=False)
     connections: list["GuardianConnection"] = Relationship(back_populates="guardian")
 
     guardian_settings: Optional["GuardianSettings"] = Relationship(back_populates="guardian")
@@ -157,10 +157,10 @@ class GuardianConnection(SQLModel, table=True):
 
     id: str = Field(default_factory=create_id, primary_key=True)
 
-    guardian_id: Optional[str] = Field(default=None, foreign_key="guardian.id")
+    guardian_id: str = Field(default=None, foreign_key="guardian.id")
     guardian: Optional["Guardian"] = Relationship(back_populates="connections")
 
-    user_id: Optional[str] = Field(default=None, foreign_key="user.id")
+    user_id: str = Field(default=None, foreign_key="user.id")
     user: Optional["User"] = Relationship(back_populates="connections")
     
     relationship_with_owner: RelationshipType = Field(default=RelationshipType.IS_OWNER)
