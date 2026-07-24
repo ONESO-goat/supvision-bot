@@ -5,7 +5,7 @@ from models.models import (GuardianConnection,
                            GuardianSettings, 
                            GuardianRestrictions, 
                            GuardianType,
-                           AvailableLanguages,
+                           RelationshipType,
                            GuardianReport
                            )
 
@@ -76,6 +76,9 @@ class GuardianServices:
         if not name or not guardian_type:
             return None, "Guardian name and type are required"
 
+        if user.user_type == UserType.CHILD:
+            return None, "Cannot make guardian as a child"
+        
         if self.get_guardian_by_owner(session, user=user):
             return None, "User already owns a Guardian"
 
@@ -127,14 +130,14 @@ class GuardianServices:
             session.rollback()
             raise ex
     
-    def add_connection(self, session:Session, guardian:Guardian, user:User, connection_type:UserType):
+    def add_connection(self, session:Session, guardian:Guardian, user:User, connection_type:RelationshipType):
         if not guardian or not user:
             return None, "Guardian and user are required"
         
         if len(self.get_all_connections(session=session, guardian=guardian)) >= 7:
             return None, "Maximum number of connections reached for this Guardian"
         
-        if connection_type not in UserType:
+        if connection_type not in RelationshipType:
             return None, f"Invalid connection type: {connection_type}"
         
         if session.exec(
@@ -148,7 +151,7 @@ class GuardianServices:
         connection = GuardianConnection(
             guardian=guardian,
             user=user,
-            connection_type=connection_type
+            relationship_with_owner=connection_type
         )
         session.add(connection)
         session.commit()

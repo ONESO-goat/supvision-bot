@@ -36,7 +36,8 @@ class UserType(Enum):
     PARENT = "parent"
     CAREGIVER = "caregiver" 
     INDIVIDUAL = "individual"
-    OFFSPRING = "offspring"
+    CHILD = "child"
+
 
 
 class GuardianType(Enum):
@@ -47,6 +48,11 @@ class GuardianType(Enum):
 class RewardType(Enum):
     GIFT_CARD = "gift_card"
 
+class RelationshipType(Enum):
+    OFFSPRING = "offspring"
+    FRIEND = "friend"
+    SUPERVISOR = "supervisor"
+    IS_OWNER = "owner"
 
 class Reward(SQLModel, table=True):
     id: str = Field(default_factory=create_id, primary_key=True)
@@ -163,8 +169,8 @@ class GuardianConnection(SQLModel, table=True):
 
     user_id: str = Field(default=None, foreign_key="user.id")
     user: Optional["User"] = Relationship(back_populates="connections")
-
-    connection_type: UserType = Field(default=UserType.INDIVIDUAL)
+    
+    relationship_with_owner: RelationshipType = Field(default=RelationshipType.IS_OWNER)
 
 
 class GuardianSettings(SQLModel, table=True):

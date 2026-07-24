@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from fastapi_config import get_session
-from models.models import GuardianType, UserType
+from models.models import GuardianType, UserType, RelationshipType
 from services.guardian_services import GuardianServices
 from services.user_service import UserService
 
@@ -23,7 +23,7 @@ class CreateGuardianRequest(BaseModel):
 
 class AddConnectionRequest(BaseModel):
     user_id: str
-    connection_type: UserType
+    relationship: RelationshipType
 
 
 class ChangeCodeRequest(BaseModel):
@@ -152,7 +152,7 @@ def add_connection(
         session=session,
         guardian=guardian,
         user=user,
-        connection_type=payload.connection_type,
+        connection_type=payload.relationship,
     )
     if not connection:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
@@ -268,5 +268,5 @@ def get_reports(given_id:str, session:Session=Depends(get_session)):
     if reports is None:
         reports, mes = guardian_service.get_reports_by_owner_id(session=session, owner_id=given_id)
         if reports is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"The given id '{given_id}' is not associated with any guardian or user")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"The given id '{given_id}' is not associated with any guardian or user. DETAILS: {mes}")
     return reports

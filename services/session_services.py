@@ -11,6 +11,10 @@ guardian_services = GuardianServices()
 
 class YTGSessionService:
 
+    def get_all_sessions(self, session:Session):
+        statement = select(GuardianSession)
+        return session.exec(statement).all()
+    
     def get_all_sessions_under_guardian(self, session:Session, guardian):
         return session.exec(
             select(GuardianSession)

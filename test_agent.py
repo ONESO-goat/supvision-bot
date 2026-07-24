@@ -1,465 +1,419 @@
 """
-Test suite for the YTG screen-watching pipeline: Agent, GuardianStateManager,
-and ScreenshotLogic.
+Test suite for YTGSessionService.
 
 Run with:
-    pip install pytest pillow --break-system-packages
-    pytest test_agent_pipeline.py -v
+    pip install pytest --break-system-packages
+    pytest test_session_service.py -v
 
-Notes on approach:
-- GuardianStateManager and ScreenshotLogic have no external deps, so they're
-  tested directly.
-- Agent depends on Engine, Prompts, and the Guardian/GuardianSettings models.
-  Those are mocked so this file doesn't need your real API keys or DB to run.
-- time.perf_counter is monkeypatched where timer behavior is being tested, so
-  tests don't actually sleep for 2-5 minutes.
+Assumptions (adjust the import path below if wrong):
+- This file assumes YTGSessionService lives in `session_service.py` at your
+  project root, importable as `from session_service import YTGSessionService`.
+  Change SERVICE_MODULE below if your actual filename differs.
+- Guardian, User, GuardianSession, GuardianReport, GuardianType are mocked
+  rather than imported for real, since this test focuses on service-layer
+  logic (event dedup, timer math, dodging draft), not on schema/migrations.
+- Because real SQLAlchemy dirty-tracking on a JSON column can only be proven
+  against the real DB/engine, the events-list assertions here check Python-
+  level state (did the service produce the correct list contents), and a
+  separate NOTE below flags what to verify once you're running against a
+  real DB with the MutableList fix applied.
 """
 
-import io
-import time
+import random
 import pytest
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
-from PIL import Image
 
-from agent.stopwatch import GuardianStateManager
-from agent.screenshot_logic import ScreenshotLogic
+SERVICE_MODULE = "services"  # <-- change if your file is named differently
 
 
 # ---------------------------------------------------------------------------
-# GuardianStateManager
+# Fixtures
 # ---------------------------------------------------------------------------
-
-class TestGuardianStateManager:
-
-    def test_initial_state(self):
-        sm = GuardianStateManager()
-        assert sm.warning_active is False
-        assert sm.tracking_start_time is None
-        assert sm.give_user_points is False
-        assert sm.amount_of_points_to_assign == 0
-        assert sm.events == []
-
-    def test_trigger_warning_sets_active_and_resets_timer(self):
-        sm = GuardianStateManager()
-        sm.tracking_start_time = 123.0  # pretend a timer was running
-        sm.trigger_warning()
-        assert sm.warning_active is True
-        assert sm.tracking_start_time is None
-
-    def test_user_scrolled_away_only_starts_if_warning_active(self):
-        sm = GuardianStateManager()
-        # warning not active -> should NOT start a timer
-        sm.user_scrolled_away(target_duration=180)
-        assert sm.tracking_start_time is None
-
-    def test_user_scrolled_away_starts_timer_when_warned(self):
-        sm = GuardianStateManager()
-        sm.trigger_warning()
-        sm.user_scrolled_away(target_duration=180)
-        assert sm.tracking_start_time is not None
-        assert sm.target_duration == 180
-
-    def test_user_scrolled_away_does_not_restart_an_already_running_timer(self):
-        sm = GuardianStateManager()
-        sm.trigger_warning()
-        sm.user_scrolled_away(target_duration=180)
-        first_start = sm.tracking_start_time
-        # calling again shouldn't reset the clock
-        sm.user_scrolled_away(target_duration=999)
-        assert sm.tracking_start_time == first_start
-        assert sm.target_duration == 180
-
-    def test_random_duration_falls_within_2_to_5_minutes(self):
-        sm = GuardianStateManager()
-        sm.trigger_warning()
-        sm.user_scrolled_away(random_time_duration=True)
-        assert 120 <= sm.target_duration <= 300
-
-    def test_update_and_check_timer_no_op_when_not_warning(self):
-        sm = GuardianStateManager()
-        sm.update_and_check_timer()  # should not raise, should do nothing
-        assert sm.give_user_points is False
-
-    def test_update_and_check_timer_does_not_award_before_duration(self):
-        sm = GuardianStateManager()
-        sm.trigger_warning()
-        with patch("time.perf_counter", side_effect=[100.0, 105.0]):
-            sm.user_scrolled_away(target_duration=180)
-            sm.update_and_check_timer()
-        assert sm.give_user_points is False
-        assert sm.warning_active is True  # still counting down
-
-    def test_update_and_check_timer_awards_points_after_duration(self):
-        sm = GuardianStateManager()
-        sm.trigger_warning()
-        # start at t=100, check at t=400 (well past a 180s target)
-        with patch("time.perf_counter", side_effect=[100.0, 400.0]):
-            sm.user_scrolled_away(target_duration=180)
-            sm.update_and_check_timer()
-        assert sm.give_user_points is True
-        assert sm.amount_of_points_to_assign == 10
-        assert sm.warning_active is False
-        assert sm.tracking_start_time is None
-
-    def test_update_and_check_timer_does_not_require_events(self):
-        """Regression test: timer completion must not depend on self.events,
-        since flush_wipe_events() can empty that list independently."""
-        sm = GuardianStateManager()
-        sm.trigger_warning()
-        assert sm.events == []
-        with patch("time.perf_counter", side_effect=[100.0, 400.0]):
-            sm.user_scrolled_away(target_duration=180)
-            sm.update_and_check_timer()
-        assert sm.give_user_points is True
-
-    def test_add_event_appends_expected_shape(self):
-        sm = GuardianStateManager()
-        sm.add_event(content="test content", time_duration=60)
-        assert len(sm.events) == 1
-        assert sm.events[0] == {
-            "content": "test content",
-            "should_avoid": True,
-            "time_to_wait": 60,
-        }
-
-    def test_flush_wipe_events_empties_list_and_commits_each(self):
-        sm = GuardianStateManager()
-        sm.add_event(content="event one")
-        sm.add_event(content="event two")
-
-        mock_session = MagicMock()
-        mock_user = MagicMock()
-
-        with patch("agent.stopwatch.GuardianRecapToOwner") as MockRecap:
-            sm.flush_wipe_events(session=mock_session, user=mock_user)
-
-        assert MockRecap.call_count == 2
-        assert mock_session.add.call_count == 2
-        assert mock_session.commit.call_count == 2
-        assert sm.events == []
-
-    def test_flush_wipe_events_no_op_on_empty_list(self):
-        sm = GuardianStateManager()
-        mock_session = MagicMock()
-        sm.flush_wipe_events(session=mock_session, user=MagicMock())
-        mock_session.add.assert_not_called()
-
-    def test_empty_point_count_resets_to_zero(self):
-        sm = GuardianStateManager()
-        sm.amount_of_points_to_assign = 50
-        sm.empty_point_count()
-        assert sm.amount_of_points_to_assign == 0
-
-
-# ---------------------------------------------------------------------------
-# ScreenshotLogic
-# ---------------------------------------------------------------------------
-
-def _make_solid_image(size=(100, 100), color=(255, 0, 0)):
-    return Image.new("RGB", size, color)
-
-
-def _image_to_png_bytes(img):
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-class TestScreenshotLogic:
-
-    def test_is_different_below_threshold(self):
-        sl = ScreenshotLogic()
-        assert sl._is_different(0.001) is False
-
-    def test_is_different_above_threshold(self):
-        sl = ScreenshotLogic()
-        assert sl._is_different(0.5) is True
-
-    def test_difference_identical_images_is_zero(self):
-        sl = ScreenshotLogic()
-        img = _make_solid_image()
-        assert sl.difference(img, img) == 0.0
-
-    def test_difference_different_size_returns_max(self):
-        sl = ScreenshotLogic()
-        img1 = _make_solid_image(size=(100, 100))
-        img2 = _make_solid_image(size=(50, 50))
-        assert sl.difference(img1, img2) == 1.0
-
-    def test_difference_completely_different_colors_is_high(self):
-        sl = ScreenshotLogic()
-        black = _make_solid_image(color=(0, 0, 0))
-        white = _make_solid_image(color=(255, 255, 255))
-        diff = sl.difference(black, white)
-        assert diff == pytest.approx(1.0, abs=0.01)
-
-    def test_check_for_updates_first_call_returns_false_and_stores_baseline(self):
-        sl = ScreenshotLogic()
-        fake_png = _image_to_png_bytes(_make_solid_image())
-        with patch.object(sl, "capture_screenshot", return_value=fake_png):
-            result = sl.check_for_updates()
-        assert result is False
-        assert sl.previous_screenshot is not None
-
-    def test_check_for_updates_detects_no_change(self):
-        sl = ScreenshotLogic()
-        fake_png = _image_to_png_bytes(_make_solid_image(color=(10, 10, 10)))
-        with patch.object(sl, "capture_screenshot", return_value=fake_png):
-            sl.check_for_updates()  # establishes baseline
-            result = sl.check_for_updates()  # same image again
-        assert result is False
-        assert sl.times_on_the_same_page == 1
-
-    def test_check_for_updates_detects_real_change(self):
-        sl = ScreenshotLogic()
-        frame_a = _image_to_png_bytes(_make_solid_image(color=(0, 0, 0)))
-        frame_b = _image_to_png_bytes(_make_solid_image(color=(255, 255, 255)))
-        with patch.object(sl, "capture_screenshot", side_effect=[frame_a, frame_b]):
-            sl.check_for_updates()  # baseline (black)
-            result = sl.check_for_updates()  # now white -> big diff
-        assert result is True
-        assert sl.times_on_the_same_page == 0
-
-    def test_check_for_updates_handles_capture_failure(self):
-        sl = ScreenshotLogic()
-        with patch.object(sl, "capture_screenshot", return_value=b""):
-            result = sl.check_for_updates()
-        assert result is False
-
-    def test_capture_screenshot_does_not_write_to_disk(self, tmp_path):
-        """Regression guard: capture_screenshot should not persist raw
-        screenshots to disk (privacy requirement discussed in review)."""
-        sl = ScreenshotLogic()
-        sl.previous_image_file = str(tmp_path / "should_not_exist.jpeg")
-        with patch("mss.mss") as mock_mss:
-            mock_sct = MagicMock()
-            mock_shot = MagicMock()
-            mock_shot.rgb = b"\x00" * (10 * 10 * 3)
-            mock_shot.size = (10, 10)
-            mock_sct.grab.return_value = mock_shot
-            mock_sct.monitors = [None, "monitor1"]
-            mock_mss.return_value.__enter__.return_value = mock_sct
-            sl.capture_screenshot()
-        import os
-        assert not os.path.exists(sl.previous_image_file)
-
-
-# ---------------------------------------------------------------------------
-# Agent
-# ---------------------------------------------------------------------------
-# Agent pulls in Engine, Prompts, and the Guardian models on import, which
-# aren't needed for these tests. We patch them out before importing agent.py.
 
 @pytest.fixture
-def agent_instance():
-    with patch("agent.engine.Engine") as MockEngine, patch("helpers.prompt.Prompts") as MockPrompts:
-        from agent.bot import Agent  # imported here so the patches above are active
+def service():
+    with patch(f"{SERVICE_MODULE}.session_services") as mock_guardian_services:
+        from services.session_services import YTGSessionService
+        svc = YTGSessionService()
+        svc._mock_guardian_services = mock_guardian_services  # stash for tests to configure
+        yield svc
 
-        mock_guardian = MagicMock()
-        mock_settings = MagicMock()
-        mock_settings.strictness = "normal"
 
-        a = Agent(
-            guadian=mock_guardian,
-            guardian_settings=mock_settings,
-            guardian_restrictions=["gambling", "graphic violence"],
+@pytest.fixture
+def mock_session():
+    """A fake SQLModel Session that just records calls."""
+    return MagicMock()
+
+
+@pytest.fixture
+def mock_guardian():
+    g = MagicMock()
+    g.id = "guardian_1"
+    g.guardian_type = "family"  # tests override as needed
+    g.owner = MagicMock(name="owner")
+    return g
+
+
+@pytest.fixture
+def mock_user():
+    u = MagicMock()
+    u.id = "user_1"
+    u.name = "Julius"
+    return u
+
+
+@pytest.fixture
+def session_row():
+    """A lightweight stand-in for a GuardianSession row."""
+    row = MagicMock()
+    row.id = "session_1"
+    row.user_id = "user_1"
+    row.guardian_id = "guardian_1"
+    row.warning_active = False
+    row.tracking_start_at = None
+    row.target_duration_seconds = 180
+    row.points_pending = 0
+    row.events = []
+    return row
+
+
+@pytest.fixture
+def mock_classifier():
+    c = MagicMock()
+    c.engine._classify_image.return_value = {
+        "summary": "a summary",
+        "visible_text": "some text",
+        "detailed_description": "details",
+        "confidence": 0.9,
+        "error": False,
+    }
+    return c
+
+
+# ---------------------------------------------------------------------------
+# get_or_create
+# ---------------------------------------------------------------------------
+
+class TestGetOrCreate:
+
+    def test_returns_existing_session_without_creating_new_row(
+        self, service, mock_session, mock_guardian, mock_user, session_row
+    ):
+        mock_session.exec.return_value.first.return_value = session_row
+        result = service.get_or_create(session=mock_session, user=mock_user, guardian=mock_guardian)
+        assert result is session_row
+        mock_session.add.assert_not_called()
+
+    def test_creates_new_row_when_none_exists(self, service, mock_session, mock_guardian, mock_user):
+        mock_session.exec.return_value.first.return_value = None
+        result = service.get_or_create(session=mock_session, user=mock_user, guardian=mock_guardian)
+        mock_session.add.assert_called_once()
+        mock_session.commit.assert_called_once()
+        mock_session.refresh.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# trigger_warning / start_avoidance_timer (pure state transitions)
+# ---------------------------------------------------------------------------
+
+class TestStateTransitions:
+
+    def test_trigger_warning_sets_active_and_clears_timer(self, service, session_row):
+        session_row.tracking_start_at = datetime.utcnow()
+        service.trigger_warning(session_row)
+        assert session_row.warning_active is True
+        assert session_row.tracking_start_at is None
+
+    def test_start_avoidance_timer_only_starts_if_warning_active(self, service, session_row):
+        session_row.warning_active = False
+        service.start_avoidance_timer(session_row)
+        assert session_row.tracking_start_at is None
+
+    def test_start_avoidance_timer_sets_start_time_when_warned(self, service, session_row):
+        session_row.warning_active = True
+        service.start_avoidance_timer(session_row, target_seconds=200)
+        assert session_row.tracking_start_at is not None
+        assert session_row.target_duration_seconds == 200
+
+    def test_start_avoidance_timer_does_not_restart_already_running_timer(self, service, session_row):
+        session_row.warning_active = True
+        service.start_avoidance_timer(session_row, target_seconds=200)
+        first_start = session_row.tracking_start_at
+        service.start_avoidance_timer(session_row, target_seconds=999)
+        assert session_row.tracking_start_at == first_start
+        assert session_row.target_duration_seconds == 200
+
+
+# ---------------------------------------------------------------------------
+# update_and_check_timer
+# ---------------------------------------------------------------------------
+
+class TestUpdateAndCheckTimer:
+
+    def test_no_op_when_not_warning(self, service, mock_session, session_row):
+        session_row.warning_active = False
+        result = service.update_and_check_timer(session=mock_session, sm_row=session_row)
+        assert result is False
+        mock_session.commit.assert_not_called()
+
+    def test_no_op_when_timer_not_started(self, service, mock_session, session_row):
+        session_row.warning_active = True
+        session_row.tracking_start_at = None
+        result = service.update_and_check_timer(session=mock_session, sm_row=session_row)
+        assert result is False
+
+    def test_does_not_award_before_duration_elapsed(self, service, mock_session, session_row):
+        session_row.warning_active = True
+        session_row.tracking_start_at = datetime.utcnow() - timedelta(seconds=10)
+        session_row.target_duration_seconds = 180
+        result = service.update_and_check_timer(session=mock_session, sm_row=session_row)
+        assert result is False
+        assert session_row.warning_active is True  # still counting down
+        assert session_row.points_pending == 0
+
+    def test_awards_points_after_duration_elapsed(self, service, mock_session, session_row):
+        session_row.warning_active = True
+        session_row.tracking_start_at = datetime.utcnow() - timedelta(seconds=300)
+        session_row.target_duration_seconds = 180
+        result = service.update_and_check_timer(session=mock_session, sm_row=session_row)
+        assert result is True
+        assert session_row.warning_active is False
+        assert session_row.tracking_start_at is None
+        assert session_row.points_pending == 10
+        mock_session.commit.assert_called_once()
+
+    def test_uses_wall_clock_not_perf_counter(self, service, mock_session, session_row):
+        """Regression guard: timer must be based on datetime, not
+        time.perf_counter(), since state now crosses process/request
+        boundaries via the DB."""
+        session_row.warning_active = True
+        session_row.tracking_start_at = datetime.utcnow() - timedelta(seconds=181)
+        session_row.target_duration_seconds = 180
+        result = service.update_and_check_timer(session=mock_session, sm_row=session_row)
+        assert result is True
+
+
+# ---------------------------------------------------------------------------
+# add_event
+# ---------------------------------------------------------------------------
+
+class TestAddEvent:
+
+    def test_default_duration_is_randomized_per_call_not_fixed(self, service, mock_session, session_row):
+        """Regression guard for the old `default=random.randint(...)` bug,
+        which only evaluated once at class-definition time."""
+        random.seed(1)
+        service.add_event(session=mock_session, sm_row=session_row, content="event A")
+        first_duration = session_row.events[0]["time_to_wait"]
+
+        random.seed(2)
+        service.add_event(session=mock_session, sm_row=session_row, content="event B")
+        second_duration = session_row.events[1]["time_to_wait"]
+
+        assert 140 <= first_duration <= 300
+        assert 140 <= second_duration <= 300
+        # different seeds should (almost certainly) produce different values
+        assert first_duration != second_duration
+
+    def test_explicit_duration_is_respected(self, service, mock_session, session_row):
+        service.add_event(session=mock_session, sm_row=session_row, content="event", time_duration=42)
+        assert session_row.events[0]["time_to_wait"] == 42
+
+    def test_event_shape(self, service, mock_session, session_row):
+        service.add_event(session=mock_session, sm_row=session_row, content="details here")
+        event = session_row.events[0]
+        assert event["content"] == "details here"
+        assert event["should_avoid"] is True
+        assert "time_to_wait" in event
+
+    def test_commits_after_adding(self, service, mock_session, session_row):
+        service.add_event(session=mock_session, sm_row=session_row, content="x")
+        mock_session.commit.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# flush_wipe_events
+# ---------------------------------------------------------------------------
+
+class TestFlushWipeEvents:
+
+    def test_no_op_on_empty_events(self, service, mock_session, session_row):
+        session_row.events = []
+        service.flush_wipe_events(session=mock_session, sm_row=session_row)
+        mock_session.add.assert_not_called()
+
+    def test_raises_if_guardian_missing(self, service, mock_session, session_row):
+        session_row.events = ["some event"]
+        mock_session.get.return_value = None
+        with pytest.raises(ValueError):
+            service.flush_wipe_events(session=mock_session, sm_row=session_row)
+
+    def test_creates_one_report_per_event_and_clears_row(
+        self, service, mock_session, session_row, mock_guardian
+    ):
+        session_row.events = ["event one", "event two", "event three"]
+        mock_session.get.return_value = mock_guardian
+
+        with patch(f"{SERVICE_MODULE}.GuardianReport") as MockReport:
+            service.flush_wipe_events(session=mock_session, sm_row=session_row)
+
+        assert MockReport.call_count == 3
+        assert mock_session.add.call_count == 3
+        # regression guard: the row's own events must be cleared, not some
+        # unrelated attribute on the service instance
+        assert session_row.events == []
+
+    def test_second_flush_after_clear_does_nothing(
+        self, service, mock_session, session_row, mock_guardian
+    ):
+        """Regression guard: previously `self.events = []` cleared the wrong
+        object, so a second flush would re-report the same events."""
+        session_row.events = ["event one"]
+        mock_session.get.return_value = mock_guardian
+
+        with patch(f"{SERVICE_MODULE}.GuardianReport") as MockReport:
+            service.flush_wipe_events(session=mock_session, sm_row=session_row)
+            assert MockReport.call_count == 1
+
+            MockReport.reset_mock()
+            service.flush_wipe_events(session=mock_session, sm_row=session_row)
+            MockReport.assert_not_called()
+
+    def test_commits_once_at_the_end(self, service, mock_session, session_row, mock_guardian):
+        session_row.events = ["a", "b"]
+        mock_session.get.return_value = mock_guardian
+        with patch(f"{SERVICE_MODULE}.GuardianReport"):
+            service.flush_wipe_events(session=mock_session, sm_row=session_row)
+        mock_session.commit.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# process_scan
+# ---------------------------------------------------------------------------
+
+class TestProcessScan:
+
+    def _configure_guardian_data(self, service, guardian, settings=None, restrictions=None):
+        service._mock_guardian_services.get_guardian_data.return_value = (
+            {"guardian": guardian, "settings": settings, "restrictions": restrictions},
+            "success",
         )
-        # Replace the real engine/screenshot_logic with controllable mocks
-        a.engine = MagicMock()
-        a.screenshot_logic = MagicMock()
-        a.prompts = MagicMock()
-        yield a
 
+    def test_raises_if_guardian_missing(self, service, mock_session, session_row, mock_classifier):
+        service._mock_guardian_services.get_guardian_data.return_value = ({"guardian": None}, "not found")
+        with pytest.raises(ValueError):
+            service.process_scan(
+                session=mock_session, classifer=mock_classifier,
+                session_row=session_row, image_bytes=b"fake",
+            )
 
-class TestAgentInitialization:
-
-    def test_requires_guardian_and_settings(self):
-        with patch("agent.engine.Engine"), patch("helpers.prompt.Prompts"):
-            from agent.bot import Agent
-            with pytest.raises(ValueError):
-                Agent(guadian=None, guardian_settings=MagicMock(), guardian_restrictions=[])
-            with pytest.raises(ValueError):
-                Agent(guadian=MagicMock(), guardian_settings=None, guardian_restrictions=[])
-
-
-class TestAgentCheck:
-
-    def test_check_returns_none_when_screen_unchanged(self, agent_instance):
-        agent_instance.screenshot_logic.check_for_updates.return_value = False
-        result = agent_instance.check()
-        assert result is None
-        # classification should never be attempted if nothing changed
-        agent_instance.engine._classify_image.assert_not_called()
-
-    def test_check_does_not_capture_screenshot_twice(self, agent_instance):
-        """Regression test: check() should reuse the frame check_for_updates
-        already captured, not call capture_screenshot() a second time."""
-        agent_instance.screenshot_logic.check_for_updates.return_value = True
-        fake_img = _make_solid_image()
-        agent_instance.screenshot_logic.get_previous_image.return_value = fake_img
-        agent_instance.engine._classify_image.return_value = {
-            "summary": "A news article",
-            "comments": "",
-            "visible_text": "headline text",
-            "detailed_description": "a detailed description",
-            "confidence": 0.9,
-            "error": False,
-            "error_message": None,
-        }
-        agent_instance.engine._generate.return_value = {
-            "flagged": False,
-            "category": None,
-            "confidence": 0.1,
-            "description": "No content matching configured restrictions.",
-            "source_context": None,
-        }
-
-        agent_instance.check()
-        agent_instance.screenshot_logic.capture_screenshot.assert_not_called()
-
-    # def test_check_handles_vision_error_gracefully(self, agent_instance):
-    #     agent_instance.screenshot_logic.check_for_updates.return_value = True
-    #     agent_instance.screenshot_logic.get_previous_image.return_value = _make_solid_image()
-    #     agent_instance.engine._classify_image.return_value = {
-    #         "error": True,
-    #         "error_message": "model timeout",
-    #     }
-    #     result = agent_instance.check()
-    #     assert result is None
-    #     # should not attempt the second-stage reasoning call on a vision error
-    #     agent_instance.engine._generate.assert_not_called()
-
-    def test_check_composes_description_from_all_vision_fields(self, agent_instance):
-        """The reasoning call should receive summary + visible_text + comments
-        + detailed_description, not just a single 'content' field that
-        doesn't exist in the vision schema."""
-        agent_instance.screenshot_logic.check_for_updates.return_value = True
-        agent_instance.screenshot_logic.get_previous_image.return_value = _make_solid_image()
-        agent_instance.engine._classify_image.return_value = {
-            "summary": "SUMMARY_MARKER",
-            "comments": "COMMENTS_MARKER",
-            "visible_text": "VISIBLE_TEXT_MARKER",
-            "detailed_description": "DETAIL_MARKER",
-            "confidence": 0.9,
-            "error": False,
-            "error_message": None,
-        }
-        agent_instance.engine._generate.return_value = {
-            "flagged": False, "category": None, "confidence": 0.1,
-            "description": "clean", "source_context": None,
-        }
-
-        agent_instance.check()
-
-        assert agent_instance.engine._generate.called
-        passed_text = agent_instance.engine._generate.call_args.kwargs.get("text", "")
-        for marker in ["SUMMARY_MARKER", "COMMENTS_MARKER", "VISIBLE_TEXT_MARKER", "DETAIL_MARKER"]:
-            assert marker in passed_text
-
-
-class TestAgentReadOverview:
-
-    def test_flagged_content_triggers_warning_and_logs_event_once(self, agent_instance):
-        user = MagicMock(name="Julius")
-        result = {
-            "flagged": True,
-            "category": "gambling",
-            "confidence": 0.8,
-            "description": "A gambling site",
-            "source_context": "chrome",
-            "image_summary": {
-                "summary": "s", "visible_text": "v", "detailed_description": "d", "confidence": 0.9,
-            },
-        }
-        agent_instance.read_overview(user, result)
-        assert agent_instance.stopwatch.warning_active is True
-        assert len(agent_instance.stopwatch.events) == 1
-
-    def test_flagged_content_does_not_duplicate_events_while_still_flagged(self, agent_instance):
-        """Regression test: the same flagged content seen on consecutive
-        polls should log exactly one event, not one per poll."""
-        user = MagicMock(name="Julius")
-        result = {
-            "flagged": True,
-            "category": "gambling",
-            "confidence": 0.8,
-            "description": "A gambling site",
-            "source_context": "chrome",
-            "image_summary": {
-                "summary": "s", "visible_text": "v", "detailed_description": "d", "confidence": 0.9,
-            },
-        }
-        agent_instance.read_overview(user, result)
-        agent_instance.read_overview(user, result)
-        agent_instance.read_overview(user, result)
-        assert len(agent_instance.stopwatch.events) == 1
-
-    def test_clearing_after_warning_starts_the_timer(self, agent_instance):
-        user = MagicMock(name="Julius")
-        flagged = {
+    def test_flagged_content_sets_warning_and_logs_one_event(
+        self, service, mock_session, session_row, mock_guardian, mock_user, mock_classifier
+    ):
+        self._configure_guardian_data(service, mock_guardian)
+        mock_session.get.return_value = mock_user
+        mock_classifier.overview.return_value = {
             "flagged": True, "category": "gambling", "confidence": 0.8,
-            "description": "A gambling site", "source_context": "chrome",
-            "image_summary": {"summary": "s", "visible_text": "v", "detailed_description": "d", "confidence": 0.9},
+            "description": "desc", "source_context": "chrome",
         }
-        clean = {
+        mock_classifier._breakdown_overview.return_value = "breakdown text"
+
+        result = service.process_scan(
+            session=mock_session, classifer=mock_classifier,
+            session_row=session_row, image_bytes=b"fake",
+        )
+
+        assert result["flagged"] is True
+        assert session_row.warning_active is True
+        assert len(session_row.events) == 1
+
+    def test_flagged_content_on_consecutive_scans_does_not_duplicate_events(
+        self, service, mock_session, session_row, mock_guardian, mock_user, mock_classifier
+    ):
+        self._configure_guardian_data(service, mock_guardian)
+        mock_session.get.return_value = mock_user
+        mock_classifier.overview.return_value = {
+            "flagged": True, "category": "gambling", "confidence": 0.8,
+            "description": "desc", "source_context": "chrome",
+        }
+        mock_classifier._breakdown_overview.return_value = "breakdown text"
+
+        service.process_scan(session=mock_session, classifer=mock_classifier,
+                              session_row=session_row, image_bytes=b"fake")
+        service.process_scan(session=mock_session, classifer=mock_classifier,
+                              session_row=session_row, image_bytes=b"fake")
+        service.process_scan(session=mock_session, classifer=mock_classifier,
+                              session_row=session_row, image_bytes=b"fake")
+
+        assert len(session_row.events) == 1
+
+    def test_clearing_after_warning_starts_avoidance_timer(
+        self, service, mock_session, session_row, mock_guardian, mock_user, mock_classifier
+    ):
+        self._configure_guardian_data(service, mock_guardian)
+        mock_session.get.return_value = mock_user
+        session_row.warning_active = True  # simulate a prior flagged scan
+
+        mock_classifier.overview.return_value = {
             "flagged": False, "category": None, "confidence": 0.1,
             "description": "clean", "source_context": None,
         }
-        agent_instance.read_overview(user, flagged)
-        assert agent_instance.stopwatch.tracking_start_time is None
-        agent_instance.read_overview(user, clean)
-        assert agent_instance.stopwatch.tracking_start_time is not None
 
-    def test_clean_content_with_no_prior_warning_does_nothing(self, agent_instance):
-        user = MagicMock(name="Julius")
-        clean = {
+        service.process_scan(session=mock_session, classifer=mock_classifier,
+                              session_row=session_row, image_bytes=b"fake")
+
+        assert session_row.tracking_start_at is not None
+
+    def test_clean_scan_with_no_prior_warning_does_nothing(
+        self, service, mock_session, session_row, mock_guardian, mock_user, mock_classifier
+    ):
+        self._configure_guardian_data(service, mock_guardian)
+        mock_session.get.return_value = mock_user
+        mock_classifier.overview.return_value = {
             "flagged": False, "category": None, "confidence": 0.1,
             "description": "clean", "source_context": None,
         }
-        agent_instance.read_overview(user, clean)
-        assert agent_instance.stopwatch.warning_active is False
-        assert agent_instance.stopwatch.tracking_start_time is None
 
+        service.process_scan(session=mock_session, classifer=mock_classifier,
+                              session_row=session_row, image_bytes=b"fake")
 
-class TestAgentBreakdownOverview:
+        assert session_row.warning_active is False
+        assert session_row.tracking_start_at is None
 
-    def test_breakdown_overview_uses_correct_field_names(self, agent_instance):
-        """Regression test: fields must match the actual vision schema
-        (summary/visible_text/detailed_description), not the old
-        'content' field that never existed."""
-        user = MagicMock()
-        user.name = "Julius"
-        result = {
-            "category": "gambling",
-            "description": "desc",
-            "confidence": 0.8,
-            "image_summary": {
-                "summary": "SUMMARY_HERE",
-                "visible_text": "VISIBLE_TEXT_HERE",
-                "detailed_description": "DETAIL_HERE",
-                "confidence": 0.6,
-            },
+    def test_individual_account_excludes_name_from_breakdown(
+        self, service, mock_session, session_row, mock_guardian, mock_user, mock_classifier
+    ):
+        mock_guardian.guardian_type = "personal"
+        self._configure_guardian_data(service, mock_guardian)
+        mock_session.get.return_value = mock_user
+        mock_classifier.overview.return_value = {
+            "flagged": True, "category": "gambling", "confidence": 0.8,
+            "description": "desc", "source_context": "chrome",
         }
-        text = agent_instance._breakdown_overview(user=user, classification_result=result)
-        assert "SUMMARY_HERE" in text
-        assert "VISIBLE_TEXT_HERE" in text
-        assert "DETAIL_HERE" in text
-        assert "Julius" in text
 
-    def test_breakdown_overview_averages_confidence(self, agent_instance):
-        user = MagicMock()
-        user.name = "Julius"
-        result = {
-            "category": "gambling",
-            "description": "desc",
-            "confidence": 1.0,
-            "image_summary": {
-                "summary": "s", "visible_text": "v", "detailed_description": "d",
-                "confidence": 0.0,
-            },
+        service.process_scan(session=mock_session, classifer=mock_classifier,
+                              session_row=session_row, image_bytes=b"fake")
+
+        _, kwargs = mock_classifier._breakdown_overview.call_args
+        assert kwargs["include_name"] is False
+
+    def test_family_account_includes_name_in_breakdown(
+        self, service, mock_session, session_row, mock_guardian, mock_user, mock_classifier
+    ):
+        mock_guardian.guardian_type = "family"
+        self._configure_guardian_data(service, mock_guardian)
+        mock_session.get.return_value = mock_user
+        mock_classifier.overview.return_value = {
+            "flagged": True, "category": "gambling", "confidence": 0.8,
+            "description": "desc", "source_context": "chrome",
         }
-        text = agent_instance._breakdown_overview(user=user, classification_result=result)
-        assert "0.5" in text  # (1.0 * 0.5) + (0.0 * 0.5)
+
+        service.process_scan(session=mock_session, classifer=mock_classifier,
+                              session_row=session_row, image_bytes=b"fake")
+
+        _, kwargs = mock_classifier._breakdown_overview.call_args
+        assert kwargs["include_name"] is True
 
 
 if __name__ == "__main__":
