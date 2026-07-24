@@ -1,5 +1,6 @@
-from sqlmodel import SQLModel, Field, Relationship, JSON
+from sqlmodel import SQLModel, Field, Relationship, JSON, Column
 from .helper import create_id, create_number_id
+from sqlalchemy.ext.mutable import MutableList
 from enum import Enum
 from typing import Optional
 from pydantic import BaseModel
@@ -201,7 +202,9 @@ class GuardianRestrictions(SQLModel, table=True):
     guardian_id: Optional[str] = Field(default=None, foreign_key="guardian.id", unique=True)
     guardian: Optional["Guardian"] = Relationship(back_populates="restrictions")
 
-    restrictions: list = Field(default_factory=list, sa_type=JSON)
+    restrictions: list = Field(
+        default_factory=list, 
+        sa_column=Column(MutableList.as_mutable(JSON)))
 
 
 class RecentActivity(SQLModel, table=True):
