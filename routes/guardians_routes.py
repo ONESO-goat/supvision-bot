@@ -38,6 +38,7 @@ class UpdateGuardianSettingsRequest(BaseModel):
     applause_message: str | None = None
     strictness: str | None = None
     language: str | None = None
+    apply_penalites:bool | None = None
 
 
 # ------------------------------------------------------------------------------

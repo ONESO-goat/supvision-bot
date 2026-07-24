@@ -223,7 +223,8 @@ class GuardianServices:
                                 warning_message:str|None=None,
                                 applause_message:str|None=None,
                                 strictness:str|None=None, 
-                                language:str|None=None):
+                                language:str|None=None,
+                                apply_penalty:bool|None=None):
         if not guardian:
             return None, "Guardian is required"
         
@@ -244,6 +245,8 @@ class GuardianServices:
             settings.strictness = strictness
         if language:
             settings.language = language
+        if apply_penalty is not None:
+            settings.points_loss_enabled = apply_penalty
         
         session.add(settings)
         session.commit()
