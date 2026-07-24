@@ -159,8 +159,18 @@ def get_test_png_handdrawn() -> bytes:
     # Return the raw PNG bytes
     return buffer.getvalue()
 
-def get_test_png() -> bytes:
-    image_path = Path(__file__).parent / "test_image.png"
+def get_test_png(num:int=1) -> bytes:
+    """
+    Image 6:
+    {'flagged': True, 
+    'description': 'A social media video depicts two individuals in a physical altercation, 
+    with the accompanying caption questioning an act of violence.', 
+    'warning_active': True, 
+    'points_awarded': False, 
+    'points_lost': 0}
+    
+    """
+    image_path = Path(__file__).parent / f"test_image{num}.png"
 
     return image_path.read_bytes()
 
@@ -288,9 +298,9 @@ def main():
     # -----------------------------------------------------------------
     scan_result = None
     if session_id:
-        image_bytes = get_test_png()
+        image_bytes = get_test_png(6)
         if image_bytes:
-            try:
+            # try:
                 resp = requests.post(
                     f"{BASE_URL}{ENDPOINTS['scan'].format(session_id=session_id)}",
                     files={"file": ("smoke_test.png", image_bytes, "image/png")},
@@ -301,8 +311,8 @@ def main():
                     print(f"  scan_result = {scan_result}")
                 else:
                     log_error("scan", f"HTTP {resp.status_code}", resp)
-            except requests.RequestException as ex:
-                log_error("scan", f"Request failed: {ex}")
+            # except requests.RequestException as ex:
+            #     log_error("scan", f"Request failed: {ex}")
         else:
             skip("scan", "Could not build test image (Pillow missing)")
     else:
