@@ -1,14 +1,9 @@
 from .engine import Engine
-from .stopwatch import GuardianStateManager
-from .screenshot_logic import ScreenshotLogic
 from helpers.prompt import Prompts
 from datetime import datetime
-import io
-from sqlmodel import Session
-import time
 from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
-    from models.models import Guardian, GuardianSettings, User
+    from models.models import Guardian, GuardianSettings
 
 class ScreenClassifier:
     def __init__(self) -> None:
