@@ -228,6 +228,37 @@ class GuardianServices:
         
         return settings, "success"
     
+    def remove_from_guardian_restrictions(self, 
+                                          session:Session, 
+                                          guardian_id:str, 
+                                          restriction: str)->tuple[list[str]|None,str]:
+            guardian = self.get_guardian_by_id(session, guardian_id=guardian_id)
+            if not guardian:
+                return None, f"Guardian does not exist under the id {guardian_id}"
+            
+            restrictions, mes = self.get_or_create_guardian_restrictions(session, guardian=guardian)
+            if restriction not in restrictions.restrictions:
+                return None, f"{restriction} is not inside current restrictions"
+            restrictions.restrictions.remove(restriction)
+            session.commit()
+            return restrictions.restrictions, f"Successfully removed '{restriction}' from guardian restrictions"
+        
+    def add_to_guardian_restrictions(self, session:Session, guardian_id:str, restriction: str)->tuple[list[str]|None,str]:
+        guardian = self.get_guardian_by_id(session, guardian_id=guardian_id)
+        if not guardian:
+            return None, f"Guardian does not exist under the id {guardian_id}"
+        
+        restrictions, mes = self.get_or_create_guardian_restrictions(session, guardian=guardian)
+        if restriction in restrictions.restrictions:
+            return None, f"{restriction} is already inside current restrictions"
+        if len(restrictions.restrictions) >= 25:
+            return None, f"Restrictions reached maxed amount of restrictions: size = {len(restrictions.restrictions)}"
+        
+        restrictions.restrictions.append(restriction)
+        session.commit()
+        return restrictions.restrictions, f"Successfully added '{restriction}' to guardian restrictions"
+    
+    
     def update_guardian_settings(self, 
                                 session:Session, 
                                 guardian:Guardian, 

@@ -170,6 +170,30 @@ curl -X PUT http://localhost:8000/guardians/GUARDIAN_ID_HERE/code \
   }'
 ```
 
+### `POST /{guardian_id}/restrictions/add`
+Add a restriction currently in the agents restrictions.
+restrictions are the content the owner wants to avoid. The guardian should send warnings whenever content that falls into any restrictions is shown.
+
+```bash
+curl -X POST http://localhost:8000/guardians/GUARDIAN_ID_HERE/restrictions/add \
+  -H "Content-Type: application/json" \
+  -d '{
+    "restriction": "politics"
+  }'
+```
+
+### `POST /{guardian_id}/restrictions/remove`
+Remove a restriction currently in the agents restrictions.
+restrictions are the content the owner wants to avoid. The guardian should send warnings whenever content that falls into any restrictions is shown.
+
+```bash
+curl -X POST http://localhost:8000/guardians/GUARDIAN_ID_HERE/restrictions/remove \
+  -H "Content-Type: application/json" \
+  -d '{
+    "restriction": "politics"
+  }'
+```
+
 ### `GET /guardians/{guardian_id}/settings`
 Fetches (or creates, if missing) the Guardian's settings — strictness, language, custom messages.
 
@@ -209,6 +233,21 @@ Lists all sessions.
 
 ```bash
 curl http://localhost:8000/sessions/
+```
+
+## `POST /{guardian_id}/on`
+Turns on the guardian, which automatically creates sessions for the users who are connected with the guardian
+
+```bash
+curl http://localhost:8000/GUARDIAN_ID_HERE/on
+```
+
+
+## `POST /{guardian_id}/off`
+Turns off the guardian, which deletes all concurring sessions under the guardian/ 
+
+```bash
+curl http://localhost:8000/GUARDIAN_ID_HERE/off
 ```
 
 ### `POST /sessions/create`
@@ -378,12 +417,50 @@ A realistic order to exercise the whole system manually:
 1. `POST /auth/signup` → get a `user_id`
 2. `POST /guardians/` (with `owner_id` = that user) → get a `guardian_id`
 3. `POST /guardians/{guardian_id}/connections/add` → connect a second user as `"offspring"` if testing a family flow
-4. `PATCH /guardians/{guardian_id}/settings/update` → set strictness/messages
-5. `POST /sessions/create` → get a `session_id`
-6. `POST /sessions/{session_id}/scan` → upload a test screenshot, see if it flags
-7. `GET /sessions/{session_id}` → poll state
-8. `POST /sessions/{session_id}/flush` → push any logged events into reports
-9. `GET /guardians/reports/{guardian_id}` → confirm the report shows up
-10. `POST /gameify/users/{user_id}/points/add` → simulate a completed avoidance timer
-11. `GET /gameify/rewards` → browse the store
-12. `POST /gameify/users/{user_id}/rewards/buy` → spend points
+4. `PATCH /guardians/{guardian_id}/settings/update` → set strictness/messages/points penalty check
+
+current settings, its value, and description on its usage:
+    *   strictness (string): How strict the agent should be with its responses and points system
+        class StrictnessLevel(Enum):
+            WEAK = "weak"
+            NORMAL = "normal"
+            HARSH = "harsh"
+
+    *   language (string): Field(default=AvailableLanguages.ENGLISH.value), available languages
+        class AvailableLanguages(Enum):
+            ENGLISH = "en"
+            SPANISH = "es"
+            FRENCH = "fr"
+            GERMAN = "de"
+            ITALIAN = "it"
+            PORTUGUESE = "pt"
+            DUTCH = "nl"
+            RUSSIAN = "ru"
+            CHINESE = "zh"
+            JAPANESE = "ja"
+            KOREAN = "ko"
+
+    *   custom_warning_messages (dict): 
+        Two values 
+        ```json
+        {"warning": "warning message for content that deems harmful by owner demands", 
+        "applause": "Message to applause the user if they listened to the warning"}
+        ```
+        
+        The owner can edit the messages as an act of encoragement
+
+    *   points_loss_enabled (boolean): whether the user loses points or not
+
+    *   base_points_lost (number): The owner has control on how many points are lost
+
+5. `POST /{guardian_id}/restrictions/add` → The owner sets restrictions for the guardian to detect
+6. `POST /sessions/{guardian_id}/on` → start the agent, this creates sessions for users who are connected with the guradian
+
+7. `POST /sessions/{session_id}/scan` → upload a test screenshot, see if it flags
+8. `GET /sessions/{session_id}` → poll state
+9. `POST /sessions/{session_id}/flush` → push any logged events into reports
+10. `GET /guardians/reports/{guardian_id}` → confirm the report shows up
+11. `POST /gameify/users/{user_id}/points/add` → simulate a completed avoidance timer. If points penalty check is true in guardian settings and the user is still viewing restricted content, the user loses point with the route `POST /gameify/users/{user_id}/points/remove`
+12. `GET /gameify/rewards` → browse the store
+13. `POST /gameify/users/{user_id}/rewards/buy` → spend points
+14. `POST /sessions/{guardian_id}/off` → A guardian can stay on for long periods, but if the owner decides its the end of the cycle they can turn off the guardian which deletes all concurring sessions

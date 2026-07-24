@@ -32,7 +32,8 @@ class AddConnectionRequest(BaseModel):
 class ChangeCodeRequest(BaseModel):
     code: int
 
-
+class NewRestriction(BaseModel):
+    restriction: str
 class UpdateGuardianSettingsRequest(BaseModel):
     warning_message: str | None = None
     applause_message: str | None = None
@@ -217,6 +218,32 @@ def change_guardian_code(
 
     return updated_guardian
 
+
+@router.post("/{guardian_id}/restrictions/remove")
+def remove_restriction(
+    guardian_id:str,
+    payload: NewRestriction,
+    session:Session=Depends(get_session)
+):
+    restrictions, mes = guardian_service.remove_from_guardian_restrictions(session=session,
+                                                  guardian_id=guardian_id,
+                                                  restriction=payload.restriction)
+    if restrictions is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=mes)
+    return restrictions
+
+@router.post("/{guardian_id}/restrictions/add")
+def add_restriction(
+    guardian_id:str,
+    payload: NewRestriction,
+    session:Session=Depends(get_session)
+):
+    restrictions, mes = guardian_service.add_to_guardian_restrictions(session=session,
+                                                  guardian_id=guardian_id,
+                                                  restriction=payload.restriction)
+    if restrictions is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=mes)
+    return restrictions
 
 @router.get("/{guardian_id}/settings")
 def get_guardian_settings(
