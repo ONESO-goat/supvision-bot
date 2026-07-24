@@ -1,15 +1,19 @@
-from models.models import Guardian, User, GuardianType, GuardianReport
+from models.models import Guardian, User, GuardianType, GuardianReport, GuardianSettings, STRICTNESS_MULTIPLIERS
 from models.guardian_session import GuardianSession
 from .guardian_services import GuardianServices
+from .gameify_service import Gameify
 from sqlmodel import Session, select
 from agent.bot import ScreenClassifier
 import random
 from datetime import datetime
 
 guardian_services = GuardianServices()
-
+gameify_service = Gameify()
+STILL_VIEWING_THRESHOLD_SECONDS = 30 
+ALERT_COUNT_THRESHOLD = 5 
 
 class YTGSessionService:
+   
 
     def get_all_sessions(self, session:Session):
         statement = select(GuardianSession)
@@ -75,6 +79,9 @@ class YTGSessionService:
         was_already_warning = session_row.warning_active
 
         user = session.get(User, session_row.user_id)
+        if not user or not settings:
+            raise ValueError("User or settings are missing during scanning process")
+        
         if overview["flagged"]:
             session_row.warning_active = True
             session_row.tracking_start_at = None
@@ -92,6 +99,14 @@ class YTGSessionService:
                     include_name=is_family_account)
                 
                 self.add_event(session=session, content=breakdown, sm_row=session_row)
+               
+                penalty_applied = self.apply_point_penalty_if_needed(
+                session=session, 
+                sm_row=session_row, 
+                guardian_settings=settings, 
+                user=user)
+            
+                
                 
         elif was_already_warning:
             session_row.tracking_start_at = datetime.utcnow()
@@ -108,6 +123,7 @@ class YTGSessionService:
             "description": overview.get("description"),
             "warning_active": session_row.warning_active,
             "points_awarded": completed,
+            "points_lost": penalty_applied
         }
     
     def update_and_check_timer(self, session:Session, sm_row: 'GuardianSession'):
@@ -141,6 +157,9 @@ class YTGSessionService:
         session.commit()
         
     def trigger_warning(self, sm_row: GuardianSession) -> None:
+        if not sm_row.warning_active:
+            sm_row.warning_started_at = datetime.utcnow()
+            sm_row.penalized_this_episode = False
         sm_row.warning_active = True
         sm_row.tracking_start_at = None
 
@@ -180,5 +199,38 @@ class YTGSessionService:
                 )
                 session.add(recap)
             
+            sm_row.total_alerts = 0
             sm_row.events = []
             session.commit()
+            
+            
+    def apply_point_penalty_if_needed(
+        self, session: Session, sm_row: GuardianSession, guardian_settings: GuardianSettings, user: User
+    ) -> int:
+        """Returns points actually deducted (0 if none)."""
+        if not guardian_settings.points_loss_enabled:
+            return 0
+        if sm_row.penalized_this_episode:
+            return 0  # already penalized for this specific warning episode
+
+        still_viewing = (
+            sm_row.warning_active
+            and sm_row.tracking_start_at is not None
+            and (datetime.utcnow() - sm_row.tracking_start_at).total_seconds() >= STILL_VIEWING_THRESHOLD_SECONDS
+        )
+        too_many_alerts = sm_row.total_alerts >= ALERT_COUNT_THRESHOLD
+
+        if not (still_viewing or too_many_alerts):
+            return 0
+
+        multiplier = STRICTNESS_MULTIPLIERS.get(guardian_settings.strictness, 1.5)
+        penalty = round(guardian_settings.base_points_lost * multiplier)
+
+        actual_deducted = min(penalty, user.currency)  # floor at 0, never go negative
+        if actual_deducted > 0:
+            gameify_service.remove_points(session=session, user=user, amount=actual_deducted)
+
+        sm_row.penalized_this_episode = True
+        session.add(sm_row)
+        session.commit()
+        return actual_deducted

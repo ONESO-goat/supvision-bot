@@ -1,3 +1,6 @@
+# routes/session_routes.py
+
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlmodel import Session
@@ -7,7 +10,7 @@ from fastapi_config import get_session
 from models.guardian_session import GuardianSession
 from services.guardian_services import GuardianServices
 from services.user_service import UserService
-from services.session import YTGSessionService
+from services.session_services import YTGSessionService
 
 router = APIRouter(prefix="/sessions", tags=["Guardian Sessions"])
 

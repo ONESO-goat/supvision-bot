@@ -19,7 +19,7 @@ class Gameify:
         session.commit()
         
     def remove_points(self, session:Session, user:User, amount:int):
-        user.currency -= amount
+        user.currency = max(0, user.currency - amount)
         session.commit()
         
     def get_reward(self, session:Session, reward_id:str):

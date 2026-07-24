@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Optional
 from pydantic import BaseModel
 
+
 class Messages(BaseModel):
     warning: str = "Avoid the upcoming content"
     applause: str = "Great work friend! We are all proud of you."
@@ -28,6 +29,11 @@ class StrictnessLevel(Enum):
     NORMAL = "normal"
     HARSH = "harsh"
 
+STRICTNESS_MULTIPLIERS = {
+    StrictnessLevel.WEAK.value: 1.2,
+    StrictnessLevel.NORMAL.value: 1.5,  
+    StrictnessLevel.HARSH.value: 2.0,
+}
 
 class UserType(Enum):
     PARENT = "parent"
@@ -168,7 +174,9 @@ class GuardianSettings(SQLModel, table=True):
     strictness: str = Field(default=StrictnessLevel.NORMAL.value)
     language: str = Field(default=AvailableLanguages.ENGLISH.value)
     custom_warning_messages: dict = Field(default_factory=lambda: Messages().model_dump(), sa_type=JSON)
-
+    points_loss_enabled: bool = Field(default=False)
+    base_points_lost: int = Field(default=5)
+    
     guardian_id: Optional[str] = Field(default=None, foreign_key="guardian.id", unique=True)
     guardian: Optional["Guardian"] = Relationship(back_populates="guardian_settings")
 

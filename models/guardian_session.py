@@ -15,6 +15,8 @@ class GuardianSession(SQLModel, table=True):
     warning_active: bool = Field(default=False)
     tracking_start_at: Optional[datetime] = Field(default=None)  # see #2
     target_duration_seconds: int = Field(default=0)
+    total_alerts: int = Field(default=0)
+    penalized_this_episode: bool = Field(default=False)
     
     events: list = Field(default_factory=list, sa_column=Column(MutableList.as_mutable(JSON)))
 
