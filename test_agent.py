@@ -6,9 +6,18 @@ Run with:
     pytest test_session_service.py -v
 
 Assumptions (adjust the import path below if wrong):
-- This file assumes YTGSessionService lives in `session_service.py` at your
-  project root, importable as `from session_service import YTGSessionService`.
-  Change SERVICE_MODULE below if your actual filename differs.
+- This file assumes YTGSessionService lives in `services/session_services.py`,
+  importable as `from services.session_services import YTGSessionService`,
+  and that this module does `guardian_services = GuardianServices()` and
+  `from models.models import ... GuardianReport` at import time (module-level
+  singleton + imported name), matching the code you pasted. Change
+  SERVICE_MODULE below if your actual path differs.
+- IMPORTANT: mocks are patched at `SERVICE_MODULE.guardian_services` and
+  `SERVICE_MODULE.GuardianReport` -- i.e. where those names are *used*
+  (session_services.py's own namespace), not where they're *defined*
+  (guardian_services.py / models/models.py). Patching the definition site
+  doesn't affect a name that was already imported/instantiated elsewhere at
+  module-import time -- this bit us in the previous version of this file.
 - Guardian, User, GuardianSession, GuardianReport, GuardianType are mocked
   rather than imported for real, since this test focuses on service-layer
   logic (event dedup, timer math, dodging draft), not on schema/migrations.
@@ -21,10 +30,12 @@ Assumptions (adjust the import path below if wrong):
 
 import random
 import pytest
+from models.models import GuardianType
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-SERVICE_MODULE = "services"  # <-- change if your file is named differently
+
+SERVICE_MODULE = "services.session_services"  # <-- change if your file/path differs
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +44,12 @@ SERVICE_MODULE = "services"  # <-- change if your file is named differently
 
 @pytest.fixture
 def service():
-    with patch(f"{SERVICE_MODULE}.session_services") as mock_guardian_services:
+    # Patch the *instance* as it's bound inside session_services.py's own
+    # namespace (`guardian_services = GuardianServices()` at import time),
+    # not the class in guardian_services.py where it's defined -- patching
+    # the definition site is a no-op here since session_services.py already
+    # holds its own reference to an already-constructed instance.
+    with patch(f"{SERVICE_MODULE}.guardian_services") as mock_guardian_services:
         from services.session_services import YTGSessionService
         svc = YTGSessionService()
         svc._mock_guardian_services = mock_guardian_services  # stash for tests to configure
@@ -50,7 +66,7 @@ def mock_session():
 def mock_guardian():
     g = MagicMock()
     g.id = "guardian_1"
-    g.guardian_type = "family"  # tests override as needed
+    g.guardian_type = GuardianType.FAMILY  # tests override as needed
     g.owner = MagicMock(name="owner")
     return g
 
@@ -401,7 +417,7 @@ class TestProcessScan:
     def test_family_account_includes_name_in_breakdown(
         self, service, mock_session, session_row, mock_guardian, mock_user, mock_classifier
     ):
-        mock_guardian.guardian_type = "family"
+        mock_guardian.guardian_type = GuardianType.FAMILY
         self._configure_guardian_data(service, mock_guardian)
         mock_session.get.return_value = mock_user
         mock_classifier.overview.return_value = {

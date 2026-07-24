@@ -25,8 +25,8 @@ class GuardianServices:
                 "restrictions": None
                 }, f"Guadian with id '{guardian_id}' not found"
             
-        settings = self.get_or_create_guardian_settings(session, guardian=guardian)
-        restrictions = self.get_or_create_guardian_restrictions(session=session, guardian=guardian)
+        settings, _ = self.get_or_create_guardian_settings(session, guardian=guardian)
+        restrictions, _ = self.get_or_create_guardian_restrictions(session=session, guardian=guardian)
         return {
                 "guardian": guardian,
                 "settings": settings,
@@ -52,7 +52,7 @@ class GuardianServices:
             raise ValueError("Guardian and user are required")
         return session.exec(
             select(GuardianConnection).where(
-                GuardianConnection.guardian_id == guardian,
+                GuardianConnection.guardian_id == guardian.id,
                 GuardianConnection.user_id == user.id
             )
         ).first()

@@ -1,6 +1,6 @@
 import time
 import random
-from models.models import GuardianRecapToOwner
+from models.models import GuardianReport
 from models.guardian_session import GuardianSession
 from datetime import datetime
 
@@ -21,15 +21,7 @@ class GuardianStateManager:
             print(f"[Stopwatch] Started on the side. User must stay away for {self.target_duration}s.")
 
     
-    def add_event(self, content:str, time_duration:int=180):
-
-        self.events.append({
-            "content": content,
-            "should_avoid": True,
-            "time_to_wait":  time_duration
-        })
-
-          
+    
 if __name__ in "__main__":
 
    pass

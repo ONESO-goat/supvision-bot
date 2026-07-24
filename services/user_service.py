@@ -1,6 +1,6 @@
 from models.models import AvailableLanguages, User, Guardian, UserType, UserSettings, GuardianConnection
 from sqlmodel import Session, select, func
-from helpers import validate_password, hash_password, verify_password
+from .helpers import validate_password, hash_password, verify_password
 from datetime import datetime
 from pydantic import ValidationError
 

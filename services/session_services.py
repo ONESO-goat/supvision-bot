@@ -1,6 +1,6 @@
 from models.models import Guardian, User, GuardianType, GuardianReport
 from models.guardian_session import GuardianSession
-from guardian_services import GuardianServices
+from .guardian_services import GuardianServices
 from sqlmodel import Session, select
 from agent.bot import ScreenClassifier
 import random

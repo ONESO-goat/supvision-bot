@@ -2,7 +2,7 @@ from sqlmodel import SQLModel, Field, JSON, Column
 from typing import Optional
 from datetime import datetime
 from sqlalchemy.ext.mutable import MutableList
-from helper import create_id
+from .helper import create_id
 
 class GuardianSession(SQLModel, table=True):
     __tablename__ = "guardian_session"
