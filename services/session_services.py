@@ -252,7 +252,7 @@ class YTGSessionService:
             owner = guardian.owner
             for event in sm_row.events:
                 recap = GuardianReport(
-                    content=event,
+                    content=event['content'],
                     send_to=owner
                 )
                 session.add(recap)
